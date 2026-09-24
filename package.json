@@ -1,0 +1,125 @@
+{
+  "name": "omda-electron-app",
+  "version": "1.0.0",
+  "description": "OMDA - Office Malagasy du Droit d'Auteur",
+  "main": "main.js",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "electron": "cross-env NODE_ENV=development electron .",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on tcp:5173 && npm run electron\"",
+    "build": "vite build",
+    "build:win": "vite build && electron-builder --win --x64",
+    "build:linux": "vite build && electron-builder --linux",
+    "build:mac": "vite build && electron-builder --mac",
+    "preview": "vite preview",
+    "start": "electron .",
+    "clean": "rimraf dist release node_modules/.vite"
+  },
+  "build": {
+    "appId": "mg.omda.app",
+    "productName": "OMDA",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "main.js",
+      "preload.js",
+      "public/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/logo.ico",
+      "publisherName": "OMDA",
+      "artifactName": "${productName}-Setup-${version}.exe"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "public/logo.png",
+      "category": "Office"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "public/logo.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "perMachine": true
+    },
+    "extraResources": [
+      {
+        "from": "public/",
+        "to": "public/",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^7.2.0",
+    "@fortawesome/free-solid-svg-icons": "^7.2.0",
+    "@fortawesome/react-fontawesome": "^3.3.0",
+    "axios": "^1.18.0",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "jszip": "^3.10.1",
+    "lucide-react": "^1.28.0",
+    "micro-ml": "^1.0.0",
+    "multer": "^2.3.0",
+    "node-cron": "^4.6.0",
+    "pg": "^8.20.0",
+    "qrcode.react": "^4.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-joyride": "^3.0.2",
+    "react-router-dom": "^6.20.0",
+    "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.0.0",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^40.6.0",
+    "electron-builder": "^26.8.1",
+    "rimraf": "^5.0.0",
+    "vite": "^4.4.0",
+    "wait-on": "^7.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hrandriatsitoaina-alt/OMDA-projet-definitif.git"
+  },
+  "keywords": [
+    "omda",
+    "electron",
+    "react",
+    "desktop"
+  ],
+  "author": "OMDA",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/hrandriatsitoaina-alt/OMDA-projet-definitif/issues"
+  },
+  "homepage": "https://github.com/hrandriatsitoaina-alt/OMDA-projet-definitif#readme",
+  "updateInfo": {
+    "derniereVersion": "2.5.0",
+    "notes": "Version actuelle : améliorations de la page Paramètres (statistiques, sauvegarde automatique, apparence).",
+    "urlTelechargement": null
+  }
+}

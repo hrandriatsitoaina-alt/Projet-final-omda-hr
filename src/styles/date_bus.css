@@ -1,0 +1,45 @@
+/* Styles supplémentaires pour les cartes Bus */
+.stats-container-bus {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  
+  .stat-card-bus {
+    flex: 1;
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    border: 1px solid #bae6fd;
+    transition: all 0.2s;
+  }
+  
+  .stat-card-bus:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  
+  .stat-card-bus .stat-icon {
+    font-size: 2.5rem;
+  }
+  
+  .stat-card-bus .stat-info {
+    flex: 1;
+  }
+  
+  .stat-card-bus .stat-number {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #0369a1;
+    margin: 0;
+  }
+  
+  .stat-card-bus .stat-label {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin: 0;
+  }

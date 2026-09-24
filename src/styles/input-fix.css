@@ -1,0 +1,43 @@
+/* src/styles/input-fix.css - Solution définitive */
+
+/* ✅ FORCER TOUS LES INPUTS */
+input, textarea, select {
+    pointer-events: auto !important;
+    opacity: 1 !important;
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    cursor: text !important;
+    background: white !important;
+    color: #333 !important;
+    caret-color: #333 !important;
+    caret-shape: auto !important;
+  }
+  
+  /* ✅ FORCER MÊME EN ÉTAT DISABLED */
+  input:disabled, textarea:disabled, select:disabled {
+    pointer-events: auto !important;
+    opacity: 1 !important;
+    background: white !important;
+    color: #333 !important;
+  }
+  
+  input[readonly], textarea[readonly] {
+    pointer-events: auto !important;
+    opacity: 1 !important;
+    background: white !important;
+    color: #333 !important;
+  }
+  
+  /* ✅ FOCUS */
+  input:focus, textarea:focus, select:focus {
+    outline: 2px solid #3d99f5 !important;
+    outline-offset: 2px !important;
+  }
+  
+  /* ✅ INPUTS DANS ELECTRON */
+  .electron-app input,
+  .electron-app textarea,
+  .electron-app select {
+    pointer-events: auto !important;
+    opacity: 1 !important;
+  }

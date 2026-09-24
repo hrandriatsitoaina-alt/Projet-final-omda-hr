@@ -1,0 +1,860 @@
+/* =========================================================
+   CONFIRME PAIEMENT — STYLE COMPLET AVEC NOUVEAUX NOMS
+   ========================================================= */
+
+   :root {
+    --cp-new-bg: #f4f6f9;
+    --cp-new-white: #ffffff;
+    --cp-new-text: #1e293b;
+    --cp-new-text-muted: #64748b;
+    --cp-new-border: #e2e8f0;
+    --cp-new-radius: 14px;
+    --cp-new-radius-sm: 10px;
+    --cp-new-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+    --cp-new-shadow-hover: 0 8px 24px rgba(15, 23, 42, 0.1);
+    --cp-new-success: #22c55e;
+    --cp-new-success-bg: #ecfdf5;
+    --cp-new-error: #ef4444;
+    --cp-new-error-bg: #fef2f2;
+    --cp-new-transition: all 0.2s ease;
+  }
+  
+  * {
+    box-sizing: border-box;
+  }
+  
+  /* =========================================================
+     CONTENEUR PRINCIPAL
+     ========================================================= */
+  
+  .cp-new-container {
+    min-height: 100vh;
+    padding: 32px 40px 60px;
+    background: var(--cp-new-bg);
+    font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--cp-new-text);
+  }
+  
+  /* =========================================================
+     LOADING / ERROR STATES
+     ========================================================= */
+  
+  .cp-new-loading,
+  .cp-new-error {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background: var(--cp-new-bg);
+    text-align: center;
+    padding: 20px;
+  }
+  
+  .cp-new-loading p {
+    color: var(--cp-new-text-muted);
+    font-size: 15px;
+    margin: 0;
+  }
+  
+  .cp-new-error {
+    color: var(--cp-new-text-muted);
+  }
+  
+  .cp-new-error svg {
+    color: var(--cp-new-error);
+  }
+  
+  .cp-new-error p {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--cp-new-text);
+    margin: 0;
+  }
+  
+  .cp-new-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--cp-new-border);
+    border-top-color: #4a90d9;
+    border-radius: 50%;
+    animation: cp-new-spin 0.8s linear infinite;
+  }
+  
+  @keyframes cp-new-spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  .cp-new-btn-retour {
+    padding: 10px 24px;
+    border-radius: var(--cp-new-radius-sm);
+    border: 1px solid var(--cp-new-border);
+    background: var(--cp-new-white);
+    color: var(--cp-new-text);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--cp-new-transition);
+  }
+  
+  .cp-new-btn-retour:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+  }
+  
+  /* =========================================================
+     NOTIFICATION
+     ========================================================= */
+  
+  .cp-new-notif {
+    max-width: 780px;
+    margin: 0 auto 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    border-radius: var(--cp-new-radius-sm);
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: var(--cp-new-shadow);
+    animation: cp-new-slide-in 0.25s ease;
+  }
+  
+  @keyframes cp-new-slide-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  
+  .cp-new-notif.success {
+    background: var(--cp-new-success-bg);
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+  }
+  
+  .cp-new-notif.error {
+    background: var(--cp-new-error-bg);
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+  }
+  
+  /* =========================================================
+     CARTE PRINCIPALE
+     ========================================================= */
+  
+  .cp-new-card {
+    max-width: 780px;
+    margin: 0 auto;
+    background: var(--cp-new-white);
+    border-radius: var(--cp-new-radius);
+    box-shadow: var(--cp-new-shadow);
+    overflow: hidden;
+  }
+  
+  /* =========================================================
+     HEADER
+     ========================================================= */
+  
+  .cp-new-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 28px 32px;
+    border-bottom: 1px solid var(--cp-new-border);
+    flex-wrap: wrap;
+  }
+  
+  .cp-new-header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  
+  .cp-new-header-icon-wrapper {
+    width: 56px;
+    height: 56px;
+    min-width: 56px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  }
+  
+  .cp-new-header h1 {
+    margin: 0 0 4px;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--cp-new-text);
+  }
+  
+  .cp-new-header-subtitle {
+    margin: 0;
+    font-size: 14px;
+    color: var(--cp-new-text-muted);
+  }
+  
+  .cp-new-header-badge {
+    padding: 6px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  
+  /* =========================================================
+     CARTE INFOS USAGER
+     ========================================================= */
+  
+  .cp-new-usager-card {
+    margin: 24px 32px 0;
+    padding: 22px;
+    border: 1.5px solid var(--cp-new-border);
+    border-radius: var(--cp-new-radius-sm);
+  }
+  
+  .cp-new-usager-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px 24px;
+  }
+  
+  .cp-new-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .cp-new-info-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--cp-new-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  
+  .cp-new-info-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--cp-new-text);
+    word-break: break-word;
+  }
+  
+  .cp-new-info-item.highlight {
+    grid-column: span 2;
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-top: 4px;
+  }
+  
+  .cp-new-info-value.montant {
+    font-size: 22px;
+    font-weight: 800;
+    color: #0f172a;
+  }
+  
+  /* =========================================================
+     FORMULAIRE DE PAIEMENT
+     ========================================================= */
+  
+  .cp-new-payment-card {
+    margin: 24px 32px 32px;
+    padding: 24px;
+    background: #fafbfc;
+    border: 1px solid var(--cp-new-border);
+    border-radius: var(--cp-new-radius-sm);
+  }
+  
+  .cp-new-payment-card h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 20px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--cp-new-text);
+  }
+  
+  .cp-new-payment-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  
+  .cp-new-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  
+  .cp-new-form-group.full-width {
+    grid-column: 1 / -1;
+  }
+  
+  .cp-new-form-group label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--cp-new-text-muted);
+  }
+  
+  .cp-new-input {
+    width: 100%;
+    padding: 11px 14px;
+    border: 1.5px solid var(--cp-new-border);
+    border-radius: 10px;
+    font-size: 14.5px;
+    font-family: inherit;
+    color: var(--cp-new-text);
+    background: var(--cp-new-white);
+    transition: var(--cp-new-transition);
+  }
+  
+  .cp-new-input:hover {
+    border-color: #cbd5e1;
+  }
+  
+  .cp-new-input:focus {
+    outline: none;
+    border-color: #4a90d9;
+    box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
+  }
+  
+  .cp-new-input-disabled {
+    background-color: #f5f5f5 !important;
+    cursor: not-allowed !important;
+    color: #2c3e50 !important;
+    font-weight: bold !important;
+    border: 2px solid #e0e0e0 !important;
+  }
+  
+  .cp-new-field-hint {
+    font-size: 12.5px;
+    color: var(--cp-new-text-muted);
+    margin-top: 2px;
+  }
+  
+  /* =========================================================
+     TOTAL / RÉCAPITULATIF
+     ========================================================= */
+  
+  .cp-new-total-payment {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 18px;
+    background: #eef4fc;
+    border: 1.5px dashed #a9c8ea;
+    border-radius: 10px;
+    font-size: 15px;
+    color: var(--cp-new-text);
+  }
+  
+  .cp-new-total-payment strong {
+    font-size: 22px;
+    font-weight: 800;
+    color: #1d4ed8;
+  }
+  
+  .cp-new-payment-detail {
+    text-align: right;
+    color: var(--cp-new-text-muted);
+    font-size: 13px;
+    margin-top: -6px;
+  }
+  
+  /* =========================================================
+     SÉLECTION DES MOIS
+     ========================================================= */
+  
+  .cp-new-mois-section {
+    margin: 20px 0;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 10px;
+    border: 1px solid #e9ecef;
+  }
+  
+  .cp-new-mois-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  
+  .cp-new-mois-header label {
+    font-weight: 600;
+    font-size: 14px;
+    color: #2c3e50;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .cp-new-mois-actions {
+    display: flex;
+    gap: 8px;
+  }
+  
+  .cp-new-mois-actions button {
+    padding: 4px 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  
+  .cp-new-btn-select-all {
+    background: #27ae60;
+    color: white;
+  }
+  
+  .cp-new-btn-select-all:hover {
+    background: #219a52;
+  }
+  
+  .cp-new-btn-deselect-all {
+    background: #e74c3c;
+    color: white;
+  }
+  
+  .cp-new-btn-deselect-all:hover {
+    background: #c0392b;
+  }
+  
+  .cp-new-mois-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    margin: 12px 0;
+  }
+  
+  .cp-new-mois-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: white;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 13px;
+    position: relative;
+  }
+  
+  .cp-new-mois-item:hover {
+    border-color: #3498db;
+    background: #f0f7ff;
+  }
+  
+  .cp-new-mois-item.selected {
+    border-color: #27ae60;
+    background: #e8f8ed;
+    box-shadow: 0 0 0 2px rgba(39, 174, 96, 0.2);
+  }
+  
+  .cp-new-mois-item .cp-new-mois-label {
+    font-weight: 500;
+    color: #2c3e50;
+  }
+  
+  .cp-new-mois-item .cp-new-mois-num {
+    color: #999;
+    font-size: 11px;
+  }
+  
+  .cp-new-mois-item .cp-new-mois-check {
+    color: #27ae60;
+    font-weight: bold;
+    font-size: 14px;
+  }
+  
+  .cp-new-mois-info {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+    font-size: 13px;
+    color: #2c3e50;
+  }
+  
+  .cp-new-mois-selected-list {
+    color: #3498db;
+    font-weight: 500;
+  }
+  
+  /* =========================================================
+     BOUTONS — GROUPE
+     ========================================================= */
+  
+  .cp-new-button-group {
+    display: flex;
+    gap: 12px;
+    margin-top: 22px;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+  }
+  
+  /* Bouton Annuler et supprimer */
+  .cp-new-btn-cancel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 24px;
+    border-radius: 8px;
+    border: 2px solid #e74c3c;
+    background: transparent;
+    color: #e74c3c;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 200px;
+    flex: 0 0 auto;
+    text-align: center;
+  }
+  
+  .cp-new-btn-cancel:hover {
+    background: #e74c3c;
+    color: #fff;
+  }
+  
+  .cp-new-btn-cancel:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  
+  /* Bouton Valider le paiement */
+  .cp-new-btn-validate {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 24px;
+    border-radius: 8px;
+    border: none;
+    color: #fff;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex: 1;
+    min-width: 200px;
+    text-align: center;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  }
+  
+  .cp-new-btn-validate:hover:not(:disabled) {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+  }
+  
+  .cp-new-btn-validate:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  
+  .cp-new-btn-validate:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+  
+  /* =========================================================
+     INFO MESSAGE
+     ========================================================= */
+  
+  .cp-new-info-message {
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+  }
+  
+  .cp-new-info-message-inner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  .cp-new-info-message-text {
+    font-size: 14px;
+    color: #6d5a00;
+  }
+  
+  /* =========================================================
+     MODAL DE CONFIRMATION DE SUPPRESSION
+     ========================================================= */
+  
+  .cp-new-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    animation: cp-new-fadeIn 0.2s ease;
+  }
+  
+  .cp-new-modal-content {
+    background: white;
+    border-radius: 12px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: cp-new-slideUp 0.3s ease;
+  }
+  
+  .cp-new-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #eee;
+  }
+  
+  .cp-new-modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  .cp-new-modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #999;
+    transition: color 0.2s;
+    padding: 0 4px;
+  }
+  
+  .cp-new-modal-close:hover {
+    color: #333;
+  }
+  
+  .cp-new-modal-body {
+    padding: 20px;
+  }
+  
+  @keyframes cp-new-fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  @keyframes cp-new-slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  
+  /* Boutons de la modale */
+  .cp-new-delete-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+    justify-content: flex-end;
+  }
+  
+  .cp-new-btn-cancel-modal {
+    padding: 10px 24px;
+    border-radius: 8px;
+    border: 2px solid #ccc;
+    background: transparent;
+    color: #555;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .cp-new-btn-cancel-modal:hover {
+    background: #f5f5f5;
+  }
+  
+  .cp-new-btn-confirm-delete {
+    padding: 10px 24px;
+    border-radius: 8px;
+    border: none;
+    background: #e74c3c;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .cp-new-btn-confirm-delete:hover {
+    background: #c0392b;
+  }
+  
+  .cp-new-btn-confirm-delete:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  
+  /* =========================================================
+     DELETE INFO BOXES
+     ========================================================= */
+  
+  .cp-new-delete-warning {
+    background: #FFF5F5;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid #fcc;
+    margin-bottom: 16px;
+  }
+  
+  .cp-new-delete-warning-title {
+    font-size: 16px;
+    margin-bottom: 12px;
+    color: #c0392b;
+  }
+  
+  .cp-new-delete-warning-text {
+    font-size: 14px;
+    color: #555;
+  }
+  
+  .cp-new-delete-info {
+    background: #FFF8E1;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid #ffe082;
+    margin-bottom: 16px;
+  }
+  
+  .cp-new-delete-info-text {
+    font-size: 14px;
+    color: #6d5a00;
+    margin: 0;
+  }
+  
+  .cp-new-delete-advice {
+    background: #E8F0FE;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid #BBDEFB;
+  }
+  
+  .cp-new-delete-advice-text {
+    font-size: 13px;
+    color: #1a237e;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  /* =========================================================
+     POSITION RELATIVE
+     ========================================================= */
+  
+  .cp-new-relative {
+    position: relative;
+  }
+  
+  .cp-new-lock-icon {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #999;
+  }
+  
+  /* =========================================================
+     RESPONSIVE
+     ========================================================= */
+  
+  @media (max-width: 720px) {
+    .cp-new-container {
+      padding: 20px 14px 40px;
+    }
+  
+    .cp-new-header {
+      padding: 22px;
+    }
+  
+    .cp-new-usager-card,
+    .cp-new-payment-card {
+      margin-left: 14px;
+      margin-right: 14px;
+      padding: 18px;
+    }
+  
+    .cp-new-usager-grid,
+    .cp-new-payment-form {
+      grid-template-columns: 1fr;
+    }
+  
+    .cp-new-info-item.highlight {
+      grid-column: span 1;
+    }
+  
+    .cp-new-button-group {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  
+    .cp-new-btn-cancel,
+    .cp-new-btn-validate {
+      width: 100%;
+      justify-content: center;
+      min-width: unset;
+      flex: unset;
+    }
+  
+    .cp-new-mois-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  
+    .cp-new-mois-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  
+    .cp-new-delete-actions {
+      flex-direction: column;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .cp-new-mois-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  
+    .cp-new-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  
+    .cp-new-header-badge {
+      align-self: flex-start;
+    }
+  }
