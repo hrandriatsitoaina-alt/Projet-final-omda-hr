@@ -1,19 +1,165 @@
 // src/pages/AdminPanel.jsx
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import '../styles/AdminPanel.css';
 import GestionCrud from './gestion_crud';
 import GestionRegionCrud from './gestion_region_crud';
+import GestionBdAdmin from './gestion_bd_admin';
 import {
   Users, FolderOpen, Activity, Settings,
   UserPlus, Edit, Trash2, CheckCircle, XCircle,
-  Crown, BarChart, MapPin, Lock
+  Crown, BarChart, MapPin, Lock, AlertTriangle, Info, X,
+  Database,
 } from 'lucide-react';
 import { useT } from '../hooks/useT';
+import { useToast, forceReflow } from '../components/Toast';
 
-const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
+const ROLES = {
+  SUPER_ADMIN: 'super_admin',
+  DAF: 'daf',
+  ADMIN: 'admin',
+  USER: 'user',
+};
+
+// ============================================================
+// CONFIRM PROVIDER
+// ============================================================
+const LocalConfirmContext = React.createContext(null);
+
+function LocalConfirmProvider({ children }) {
+  const [dialog, setDialog] = useState(null);
+  const [alertDialog, setAlertDialog] = useState(null);
+  const activeElRef = useRef(null);
+
+  const confirmFn = useCallback((message, options = {}) => {
+    activeElRef.current = document.activeElement;
+    return new Promise((resolve) => {
+      setDialog({
+        message,
+        title: options.title || 'Confirmation',
+        danger: !!options.danger,
+        confirmLabel: options.confirmLabel,
+        cancelLabel: options.cancelLabel,
+        resolve,
+      });
+    });
+  }, []);
+
+  const alertFn = useCallback((message, options = {}) => {
+    return new Promise((resolve) => {
+      setAlertDialog({ message, title: options.title || 'Information', resolve });
+    });
+  }, []);
+
+  const refocusAfterClose = useCallback(() => {
+    forceReflow();
+    requestAnimationFrame(() => {
+      const el = activeElRef.current;
+      if (el && document.body.contains(el) && typeof el.focus === 'function') {
+        try { el.focus(); } catch (e) { /* ignore */ }
+      }
+      activeElRef.current = null;
+    });
+  }, []);
+
+  const handleConfirm = useCallback((result) => {
+    setDialog((cur) => { cur?.resolve?.(result); return null; });
+    refocusAfterClose();
+  }, [refocusAfterClose]);
+
+  const handleAlertClose = useCallback(() => {
+    setAlertDialog((cur) => { cur?.resolve?.(); return null; });
+    refocusAfterClose();
+  }, [refocusAfterClose]);
+
+  const canUsePortal = typeof document !== 'undefined' && document.body;
+
+  return (
+    <LocalConfirmContext.Provider value={{ confirm: confirmFn, alertUser: alertFn }}>
+      {children}
+
+      {canUsePortal && dialog && createPortal(
+        <div
+          className="confirm-modal-overlay"
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2147483646, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) handleConfirm(false); }}
+        >
+          <div className="confirm-modal-content" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="confirm-modal-header">
+              <h3>
+                <AlertTriangle size={20} color={dialog.danger ? '#c62828' : '#f9a825'} />
+                {dialog.title}
+              </h3>
+              <button className="confirm-modal-close" onClick={() => handleConfirm(false)} type="button">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="confirm-modal-body">{dialog.message}</div>
+            <div className="confirm-modal-buttons">
+              <button
+                type="button"
+                className={dialog.danger ? 'btn-delete' : 'btn-save'}
+                autoFocus
+                onClick={() => handleConfirm(true)}
+              >
+                {dialog.confirmLabel || 'Confirmer'}
+              </button>
+              <button type="button" className="btn-cancel" onClick={() => handleConfirm(false)}>
+                {dialog.cancelLabel || 'Annuler'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {canUsePortal && alertDialog && createPortal(
+        <div
+          className="confirm-modal-overlay"
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2147483646, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) handleAlertClose(); }}
+        >
+          <div className="confirm-modal-content" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="confirm-modal-header">
+              <h3><Info size={20} color="#1565c0" /> {alertDialog.title}</h3>
+              <button className="confirm-modal-close" onClick={handleAlertClose} type="button">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="confirm-modal-body">{alertDialog.message}</div>
+            <div className="confirm-modal-buttons">
+              <button type="button" className="btn-save" autoFocus onClick={handleAlertClose}>OK</button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </LocalConfirmContext.Provider>
+  );
+}
+
+function useLocalConfirm() {
+  const ctx = React.useContext(LocalConfirmContext);
+  if (!ctx) {
+    return {
+      confirm: async (msg) => window.confirm(msg),
+      alertUser: async (msg) => window.alert(msg),
+    };
+  }
+  return ctx;
+}
+
+const filterPassword = (value) => String(value || '').slice(0, 4);
+
+// ============================================================
+// ADMIN PANEL INNER
+// ============================================================
+const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
   const navigate = useNavigate();
   const { t, langue } = useT();
+  const showToast = useToast();
+  const { confirm, alertUser } = useLocalConfirm();
 
   const locale = useMemo(() => {
     if (langue === 'en') return 'en-US';
@@ -21,26 +167,31 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
     return 'fr-FR';
   }, [langue]);
 
-  // ✅ Rôle d'accès : 'super_admin' ou 'admin'
-  const [accessRole, setAccessRole] = useState('super_admin');
-  const isSuperAdmin = accessRole === 'super_admin';
-  const isSimpleAdmin = accessRole === 'admin';
+  const [accessRole, setAccessRole] = useState(null);
+  const isSuperAdmin = accessRole === ROLES.SUPER_ADMIN;
+  const isDaf = accessRole === ROLES.DAF || accessRole === ROLES.ADMIN;
+
+  const canChangeStatus = isSuperAdmin || isDaf;
+  const canManageUsers = isSuperAdmin;
 
   const [users, setUsers] = useState([]);
   const [usagers, setUsagers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('users');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [editingUser, setEditingUser] = useState(null);
+
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [editUserForm, setEditUserForm] = useState({
+    nom: '', email: '', mot_de_passe: '', role: 'user', statut: 'actif',
+  });
+
   const [showEditSuperAdmin, setShowEditSuperAdmin] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
   const [token, setToken] = useState(null);
 
-  // ✅ Tableau de TOUS les super admins
   const [superAdmins, setSuperAdmins] = useState([]);
-  // ✅ Super admin actuellement sélectionné pour modification
   const [currentSuperAdmin, setCurrentSuperAdmin] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
 
@@ -70,9 +221,32 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
     nom: '', email: '', mot_de_passe: '', role: 'user', statut: 'actif',
   });
 
-  // ----------------------------------------------
-  // 1. CHARGEMENT INITIAL
-  // ----------------------------------------------
+  const addUserFirstInputRef = useRef(null);
+  const editUserFirstInputRef = useRef(null);
+  const editSuperAdminFirstInputRef = useRef(null);
+  const editUsagerFirstInputRef = useRef(null);
+
+  const closeAddForm = useCallback(() => { setShowAddForm(false); forceReflow(); }, []);
+  const closeEditUser = useCallback(() => {
+    setEditingUserId(null);
+    setEditUserForm({ nom: '', email: '', mot_de_passe: '', role: 'user', statut: 'actif' });
+    forceReflow();
+  }, []);
+  const closeEditSuperAdmin = useCallback(() => {
+    setShowEditSuperAdmin(false);
+    forceReflow();
+  }, []);
+  const closeEditUsager = useCallback(() => { setShowEditUsager(false); setSelectedUsager(null); forceReflow(); }, []);
+  const closeDeleteConfirm = useCallback(() => { setShowDeleteConfirm(false); setUsagerToDelete(null); forceReflow(); }, []);
+
+  const handleClosePanel = useCallback(() => {
+    forceReflow();
+    onClose?.();
+  }, [onClose]);
+
+  // ============================================================
+  // CHARGEMENT INITIAL
+  // ============================================================
   useEffect(() => {
     let currentToken = propToken;
     if (!currentToken) currentToken = localStorage.getItem('adminToken');
@@ -83,11 +257,17 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       return;
     }
 
-    const storedRole = localStorage.getItem('adminAccessRole') || localStorage.getItem('adminRole');
-    if (storedRole === 'admin' || storedRole === 'super_admin') {
-      setAccessRole(storedRole);
-    } else {
-      setAccessRole('super_admin');
+    const storedRole =
+      localStorage.getItem('adminAccessRole') ||
+      localStorage.getItem('adminRole');
+
+    let normalizedRole = null;
+    if (storedRole === ROLES.SUPER_ADMIN) normalizedRole = ROLES.SUPER_ADMIN;
+    else if (storedRole === ROLES.DAF) normalizedRole = ROLES.DAF;
+    else if (storedRole === ROLES.ADMIN) normalizedRole = ROLES.ADMIN;
+
+    if (normalizedRole) {
+      setAccessRole(normalizedRole);
     }
 
     const storedUser = localStorage.getItem('adminUser');
@@ -95,13 +275,42 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       try {
         const parsed = JSON.parse(storedUser);
         if (parsed?.id) setCurrentUserId(parsed.id);
+        if (!normalizedRole && parsed?.role) {
+          if (parsed.role === ROLES.SUPER_ADMIN) setAccessRole(ROLES.SUPER_ADMIN);
+          else if (parsed.role === ROLES.DAF) setAccessRole(ROLES.DAF);
+          else if (parsed.role === ROLES.ADMIN) setAccessRole(ROLES.ADMIN);
+        }
       } catch (e) { /* ignore */ }
     }
 
     setToken(currentToken);
     fetchAllData(currentToken);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propToken]);
+
+  useEffect(() => {
+    if (!showAddForm) return;
+    const id = setTimeout(() => addUserFirstInputRef.current?.focus(), 80);
+    return () => clearTimeout(id);
+  }, [showAddForm]);
+
+  useEffect(() => {
+    if (!editingUserId) return;
+    const id = setTimeout(() => editUserFirstInputRef.current?.focus(), 80);
+    return () => clearTimeout(id);
+  }, [editingUserId]);
+
+  useEffect(() => {
+    if (!showEditSuperAdmin) return;
+    const id = setTimeout(() => editSuperAdminFirstInputRef.current?.focus(), 80);
+    return () => clearTimeout(id);
+  }, [showEditSuperAdmin]);
+
+  useEffect(() => {
+    if (!showEditUsager) return;
+    const id = setTimeout(() => editUsagerFirstInputRef.current?.focus(), 80);
+    return () => clearTimeout(id);
+  }, [showEditUsager]);
 
   const fetchAllData = async (currentToken) => {
     try {
@@ -117,24 +326,30 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
     }
   };
 
-  // ----------------------------------------------
-  // 2. REQUÊTES API
-  // ----------------------------------------------
   const fetchUsers = async (currentToken) => {
     try {
       const response = await fetch('http://localhost:3001/api/admin/users', {
         headers: { adminToken: currentToken },
       });
+
+      if (response.status === 403) {
+        console.warn('⚠️ /admin/users a renvoyé 403 — session invalide');
+        setError(t(
+          'Session invalide ou expirée',
+          'Sesion diso na lany',
+          'Invalid or expired session'
+        ));
+        return;
+      }
+
       const data = await response.json();
       if (response.ok && data.success) {
         const usersList = data.users || [];
         setUsers(usersList);
 
-        // ✅ Récupérer TOUS les super admins
-        const allSuperAdmins = usersList.filter(u => u.role === 'super_admin');
+        const allSuperAdmins = usersList.filter(u => u.role === ROLES.SUPER_ADMIN);
         setSuperAdmins(allSuperAdmins);
 
-        // Déterminer le super admin courant
         let current = null;
         const storedUser = localStorage.getItem('adminUser');
         let storedEmail = null;
@@ -154,21 +369,21 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
 
         if (current) {
           setCurrentUserId(current.id);
-          setSuperAdminData({
-            nom: current.nom,
-            email: current.email,
+          setSuperAdminData(prev => ({
+            ...prev,
+            nom: current.nom || '',
+            email: current.email || '',
             mot_de_passe: '',
             confirm_mot_de_passe: '',
-          });
+          }));
         }
 
-        // Stats
         const total = usersList.length;
         const active = usersList.filter(u => u.statut === 'actif').length;
         const inactive = usersList.filter(u => u.statut === 'inactif').length;
         const admins = usersList.filter(u => u.role === 'admin').length;
         const superAdminsCount = allSuperAdmins.length;
-        const daf = usersList.filter(u => u.role === 'daf').length;
+        const daf = usersList.filter(u => u.role === ROLES.DAF).length;
         setStats(prev => ({
           ...prev, totalUsers: total, activeUsers: active, inactiveUsers: inactive,
           admins, superAdmins: superAdminsCount, daf,
@@ -176,10 +391,6 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
         setError(null);
       } else {
         setError(data.message || t('Erreur', 'Olana', 'Error'));
-        if (response.status === 403) {
-          localStorage.removeItem('adminToken');
-          if (onLogout) onLogout();
-        }
       }
     } catch (error) {
       console.error('fetchUsers error:', error);
@@ -192,12 +403,18 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       const response = await fetch('http://localhost:3001/api/usagers', {
         headers: { adminToken: currentToken },
       });
+      if (response.status === 403) {
+        console.warn('⚠️ /usagers 403');
+        return;
+      }
       const data = await response.json();
       let usagersData = [];
       if (Array.isArray(data)) usagersData = data;
       else if (data?.usagers) usagersData = data.usagers;
       else if (data?.data) usagersData = data.data;
-      else usagersData = Object.values(data).filter(item => item && item.id);
+      else if (data && typeof data === 'object') {
+        usagersData = Object.values(data).filter(item => item && item.id);
+      }
 
       setUsagers(usagersData);
       setStats(prev => ({ ...prev, totalUsagers: usagersData.length }));
@@ -213,6 +430,10 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       const response = await fetch('http://localhost:3001/api/admin/activities', {
         headers: { adminToken: currentToken },
       });
+      if (response.status === 403) {
+        console.warn('⚠️ /admin/activities 403');
+        return;
+      }
       const data = await response.json();
       if (data.success) setActivities(data.activities || []);
       else setActivities([]);
@@ -235,17 +456,14 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
     }
   };
 
-  // ----------------------------------------------
-  // 3. GESTION DES UTILISATEURS
-  // ----------------------------------------------
   const handleAddUser = async (e) => {
     e.preventDefault();
-    if (!isSuperAdmin) {
-      alert(t('Action réservée au Super Admin', 'Hetsika natokana ho Super Admin', 'Action reserved for Super Admin'));
+    if (!canManageUsers) {
+      await alertUser(t('Action réservée au Super Admin', 'Hetsika natokana ho Super Admin', 'Action reserved for Super Admin'));
       return;
     }
     if (!formData.nom || !formData.email || !formData.mot_de_passe) {
-      alert(t('Veuillez remplir tous les champs', 'Fenoy ny saha rehetra', 'Please fill all fields'));
+      await alertUser(t('Veuillez remplir tous les champs', 'Fenoy ny saha rehetra', 'Please fill all fields'));
       return;
     }
     try {
@@ -259,35 +477,59 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
         setSuccessMsg(t('Utilisateur ajouté', 'Nampiana ny mpampiasa', 'User added'));
         await logActivity(t('Ajout utilisateur', 'Fanampiana mpampiasa', 'Add user'), `${t('Ajout de', 'Fanampiana ny', 'Adding')} ${formData.nom}`);
         setFormData({ nom: '', email: '', mot_de_passe: '', role: 'user', statut: 'actif' });
-        setShowAddForm(false);
+        closeAddForm();
         fetchUsers(token);
         setTimeout(() => setSuccessMsg(null), 3000);
       } else {
-        alert(`${t('Erreur', 'Olana', 'Error')}: ${data.message || t('Impossible d\'ajouter l\'utilisateur', 'Tsy afaka manampy mpampiasa', 'Unable to add user')}`);
+        await alertUser(`${t('Erreur', 'Olana', 'Error')}: ${data.message || 'Erreur'}`);
       }
     } catch (error) {
       console.error('handleAddUser error:', error);
-      alert(t('Erreur de connexion', 'Nisy olana tamin\'ny fifandraisana', 'Connection error'));
+      await alertUser(t('Erreur de connexion', 'Nisy olana', 'Connection error'));
     }
   };
 
+  const openEditUser = useCallback((user) => {
+    if (!user) return;
+    setEditingUserId(user.id);
+    setEditUserForm({
+      nom: user.nom || '',
+      email: user.email || '',
+      mot_de_passe: '',
+      role: user.role || 'user',
+      statut: user.statut || 'actif',
+    });
+  }, []);
+
   const handleEditUser = async (e) => {
     e.preventDefault();
-    if (!isSuperAdmin) {
-      alert(t('Action réservée au Super Admin', 'Hetsika natokana ho Super Admin', 'Action reserved for Super Admin'));
+    if (!canManageUsers) {
+      await alertUser(t('Action réservée au Super Admin', 'Hetsika natokana ho Super Admin', 'Action reserved for Super Admin'));
       return;
     }
+    if (!editingUserId) return;
+
+    if (editUserForm.mot_de_passe && editUserForm.mot_de_passe.length !== 4) {
+      await alertUser(t(
+        'Le mot de passe doit contenir exactement 4 caractères',
+        'Tsy maintsy misy litera 4 marina ny teny miafina',
+        'Password must contain exactly 4 characters'
+      ));
+      return;
+    }
+
     try {
       const updateData = {
-        nom: editingUser.nom,
-        email: editingUser.email,
-        role: editingUser.role,
-        statut: editingUser.statut,
+        nom: editUserForm.nom,
+        email: editUserForm.email,
+        role: editUserForm.role,
+        statut: editUserForm.statut,
       };
-      if (editingUser.mot_de_passe && editingUser.mot_de_passe.trim() !== '') {
-        updateData.mot_de_passe = editingUser.mot_de_passe;
+      if (editUserForm.mot_de_passe && editUserForm.mot_de_passe.trim() !== '') {
+        updateData.mot_de_passe = editUserForm.mot_de_passe;
       }
-      const response = await fetch(`http://localhost:3001/api/admin/users/${editingUser.id}`, {
+
+      const response = await fetch(`http://localhost:3001/api/admin/users/${editingUserId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify(updateData),
@@ -295,34 +537,44 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       const data = await response.json();
       if (response.ok && data.success) {
         setSuccessMsg(t('Utilisateur modifié', 'Voaova ny mpampiasa', 'User updated'));
-        await logActivity(t('Modification utilisateur', 'Fanovana mpampiasa', 'Update user'), `${t('Modification de', 'Fanovana ny', 'Updating')} ${editingUser.nom}`);
-        setEditingUser(null);
+        await logActivity(t('Modification utilisateur', 'Fanovana mpampiasa', 'Update user'), `${t('Modification de', 'Fanovana ny', 'Updating')} ${editUserForm.nom}`);
+        closeEditUser();
         fetchUsers(token);
         setTimeout(() => setSuccessMsg(null), 3000);
       } else {
-        alert(`${t('Erreur', 'Olana', 'Error')}: ${data.message || t('Impossible de modifier l\'utilisateur', 'Tsy afaka manova mpampiasa', 'Unable to update user')}`);
+        await alertUser(`${t('Erreur', 'Olana', 'Error')}: ${data.message || 'Erreur'}`);
       }
     } catch (error) {
       console.error('handleEditUser error:', error);
-      alert(t('Erreur de connexion', 'Nisy olana tamin\'ny fifandraisana', 'Connection error'));
+      await alertUser(t('Erreur de connexion', 'Nisy olana', 'Connection error'));
     }
   };
 
   const handleToggleStatus = async (user) => {
-    if (user.role === 'super_admin') {
-      alert(t('Vous ne pouvez pas modifier le statut du Super Admin', 'Tsy afaka manova ny satan\'ny Super Admin ianao', 'You cannot change the Super Admin status'));
+    if (!canChangeStatus) {
+      await alertUser(t('Non autorisé', 'Tsy nahazo alalana', 'Not allowed'));
       return;
     }
+    if (user.role === ROLES.SUPER_ADMIN) {
+      await alertUser(t('Vous ne pouvez pas modifier le statut du Super Admin', 'Tsy afaka manova ny satan\'ny Super Admin ianao', 'You cannot change the Super Admin status'));
+      return;
+    }
+    if (isDaf && !isSuperAdmin && user.role === ROLES.DAF) {
+      await alertUser(t('Vous ne pouvez pas modifier le statut d\'un autre DAF', 'Tsy afaka manova ny satan\'ny DAF hafa ianao', 'You cannot change another DAF status'));
+      return;
+    }
+
     const newStatus = user.statut === 'actif' ? 'inactif' : 'actif';
     const action = newStatus === 'actif'
       ? t('activer', 'hamelona', 'activate')
       : t('désactiver', 'hamono', 'deactivate');
 
-    if (!window.confirm(t(
+    const ok = await confirm(t(
       `Voulez-vous vraiment ${action} l'utilisateur "${user.nom}" ?`,
       `Tena tianao ve ny ${action} ny mpampiasa "${user.nom}" ?`,
       `Do you really want to ${action} user "${user.nom}"?`
-    ))) return;
+    ));
+    if (!ok) return;
 
     try {
       const updateData = {
@@ -343,28 +595,31 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
         fetchUsers(token);
         setTimeout(() => setSuccessMsg(null), 3000);
       } else {
-        alert(`${t('Erreur', 'Olana', 'Error')}: ${data.message || t('Impossible de modifier le statut', 'Tsy afaka manova ny sata', 'Unable to change status')}`);
+        await alertUser(`${t('Erreur', 'Olana', 'Error')}: ${data.message || 'Erreur'}`);
       }
     } catch (error) {
       console.error('handleToggleStatus error:', error);
-      alert(t('Erreur de connexion', 'Nisy olana tamin\'ny fifandraisana', 'Connection error'));
+      await alertUser(t('Erreur de connexion', 'Nisy olana', 'Connection error'));
+    } finally {
+      forceReflow();
     }
   };
 
   const handleDeleteUser = async (id, nom, role) => {
-    if (!isSuperAdmin) {
-      alert(t('Action réservée au Super Admin', 'Hetsika natokana ho Super Admin', 'Action reserved for Super Admin'));
+    if (!canManageUsers) {
+      await alertUser(t('Action réservée au Super Admin', 'Hetsika natokana ho Super Admin', 'Action reserved for Super Admin'));
       return;
     }
-    if (role === 'super_admin') {
-      alert(t('Impossible de supprimer le Super Admin', 'Tsy afaka mamafa Super Admin', 'Cannot delete the Super Admin'));
+    if (role === ROLES.SUPER_ADMIN) {
+      await alertUser(t('Impossible de supprimer le Super Admin', 'Tsy afaka mamafa Super Admin', 'Cannot delete the Super Admin'));
       return;
     }
-    if (!window.confirm(t(
-      `⚠️ Supprimer définitivement "${nom}" ?`,
-      `⚠️ Hamafa tanteraka an'i "${nom}" ?`,
-      `⚠️ Permanently delete "${nom}"?`
-    ))) return;
+    const ok = await confirm(t(
+      `Supprimer définitivement "${nom}" ?`,
+      `Hamafa tanteraka an'i "${nom}" ?`,
+      `Permanently delete "${nom}"?`
+    ), { danger: true });
+    if (!ok) return;
 
     try {
       const response = await fetch(`http://localhost:3001/api/admin/users/${id}`, {
@@ -378,11 +633,13 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
         fetchUsers(token);
         setTimeout(() => setSuccessMsg(null), 3000);
       } else {
-        alert(`${t('Erreur', 'Olana', 'Error')}: ${data.message || t('Impossible de supprimer l\'utilisateur', 'Tsy afaka mamafa mpampiasa', 'Unable to delete user')}`);
+        await alertUser(`${t('Erreur', 'Olana', 'Error')}: ${data.message || 'Erreur'}`);
       }
     } catch (error) {
       console.error('handleDeleteUser error:', error);
-      alert(t('Erreur de connexion', 'Nisy olana tamin\'ny fifandraisana', 'Connection error'));
+      await alertUser(t('Erreur de connexion', 'Nisy olana', 'Connection error'));
+    } finally {
+      forceReflow();
     }
   };
 
@@ -390,8 +647,8 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
     if (!isSuperAdmin) return;
     setCurrentSuperAdmin(superAdmin);
     setSuperAdminData({
-      nom: superAdmin.nom,
-      email: superAdmin.email,
+      nom: superAdmin.nom || '',
+      email: superAdmin.email || '',
       mot_de_passe: '',
       confirm_mot_de_passe: '',
     });
@@ -401,22 +658,36 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
   const handleUpdateSuperAdmin = async (e) => {
     e.preventDefault();
     if (!isSuperAdmin) {
-      alert(t('Action réservée au Super Admin', 'Hetsika natokana ho Super Admin', 'Action reserved for Super Admin'));
+      await alertUser(t('Action réservée au Super Admin', 'Hetsika natokana ho Super Admin', 'Action reserved for Super Admin'));
       return;
     }
     if (!currentSuperAdmin) return;
-    if (superAdminData.mot_de_passe !== superAdminData.confirm_mot_de_passe) {
-      alert(t('Les mots de passe ne correspondent pas', 'Tsy mifanaraka ny teny miafina', 'Passwords do not match'));
-      return;
+
+    const wantChangePwd = !!superAdminData.mot_de_passe;
+
+    if (wantChangePwd) {
+      if (superAdminData.mot_de_passe !== superAdminData.confirm_mot_de_passe) {
+        await alertUser(t('Les mots de passe ne correspondent pas', 'Tsy mifanaraka ny teny miafina', 'Passwords do not match'));
+        return;
+      }
+      if (superAdminData.mot_de_passe.length !== 4) {
+        await alertUser(t(
+          'Le mot de passe doit contenir exactement 4 caractères',
+          'Tsy maintsy misy litera 4 marina ny teny miafina',
+          'Password must contain exactly 4 characters'
+        ));
+        return;
+      }
     }
+
     try {
       const updateData = {
         nom: superAdminData.nom,
         email: superAdminData.email,
-        role: 'super_admin',
+        role: ROLES.SUPER_ADMIN,
         statut: 'actif',
       };
-      if (superAdminData.mot_de_passe) updateData.mot_de_passe = superAdminData.mot_de_passe;
+      if (wantChangePwd) updateData.mot_de_passe = superAdminData.mot_de_passe;
 
       const response = await fetch(`http://localhost:3001/api/admin/users/${currentSuperAdmin.id}`, {
         method: 'PUT',
@@ -430,22 +701,19 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
           t('Modification Super Admin', 'Fanovana Super Admin', 'Update Super Admin'),
           `${t('Modification du compte', 'Fanovana ny kaonty', 'Updating account')} ${currentSuperAdmin.nom}`
         );
-        setShowEditSuperAdmin(false);
-        setSuperAdminData({ ...superAdminData, mot_de_passe: '', confirm_mot_de_passe: '' });
+        closeEditSuperAdmin();
+        setSuperAdminData(prev => ({ ...prev, mot_de_passe: '', confirm_mot_de_passe: '' }));
         fetchUsers(token);
         setTimeout(() => setSuccessMsg(null), 3000);
       } else {
-        alert(`${t('Erreur', 'Olana', 'Error')}: ${data.message || t('Impossible de modifier le Super Admin', 'Tsy afaka manova Super Admin', 'Unable to update Super Admin')}`);
+        await alertUser(`${t('Erreur', 'Olana', 'Error')}: ${data.message || 'Erreur'}`);
       }
     } catch (error) {
       console.error('handleUpdateSuperAdmin error:', error);
-      alert(t('Erreur de connexion', 'Nisy olana tamin\'ny fifandraisana', 'Connection error'));
+      await alertUser(t('Erreur de connexion', 'Nisy olana', 'Connection error'));
     }
   };
 
-  // ----------------------------------------------
-  // 4. GESTION DES USAGERS
-  // ----------------------------------------------
   const handleTypeChange = (type) => {
     setSelectedType(type);
     const usagersArray = Array.isArray(usagers) ? usagers : [];
@@ -456,7 +724,7 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
   };
 
   const handleEditUsager = (usager) => {
-    if (!isSuperAdmin) return;
+    if (!canManageUsers) return;
     if (!usager) return;
     setSelectedUsager(usager);
     setEditingUsagerData({
@@ -473,7 +741,7 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
 
   const handleUpdateUsager = async (e) => {
     e.preventDefault();
-    if (!isSuperAdmin || !selectedUsager) return;
+    if (!canManageUsers || !selectedUsager) return;
     try {
       const response = await fetch(`http://localhost:3001/api/usagers/${selectedUsager.id}`, {
         method: 'PUT',
@@ -484,28 +752,27 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       if (response.ok && data.success) {
         setSuccessMsg(t('Usager modifié', 'Voaova ny mpampiasa', 'User updated'));
         await logActivity(t('Modification usager', 'Fanovana mpampiasa', 'Update user'), `${t('Modification de', 'Fanovana ny', 'Updating')} ${selectedUsager.denomination}`);
-        setShowEditUsager(false);
-        setSelectedUsager(null);
+        closeEditUsager();
         fetchUsagers(token);
         setTimeout(() => setSuccessMsg(null), 3000);
       } else {
-        alert(`${t('Erreur', 'Olana', 'Error')}: ${data.message || t('Impossible de modifier l\'usager', 'Tsy afaka manova mpampiasa', 'Unable to update user')}`);
+        await alertUser(`${t('Erreur', 'Olana', 'Error')}: ${data.message || 'Erreur'}`);
       }
     } catch (error) {
       console.error('handleUpdateUsager error:', error);
-      alert(t('Erreur de connexion', 'Nisy olana tamin\'ny fifandraisana', 'Connection error'));
+      await alertUser(t('Erreur de connexion', 'Nisy olana', 'Connection error'));
     }
   };
 
   const confirmDeleteUsager = (usager) => {
-    if (!isSuperAdmin) return;
+    if (!canManageUsers) return;
     if (!usager) return;
     setUsagerToDelete(usager);
     setShowDeleteConfirm(true);
   };
 
   const handleDeleteUsager = async () => {
-    if (!isSuperAdmin || !usagerToDelete) return;
+    if (!canManageUsers || !usagerToDelete) return;
     try {
       const response = await fetch(`http://localhost:3001/api/usagers/${usagerToDelete.id}`, {
         method: 'DELETE',
@@ -513,24 +780,20 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        setSuccessMsg(t(`Usager "${usagerToDelete.denomination}" supprimé`, `Voafafa ny mpampiasa "${usagerToDelete.denomination}"`, `User "${usagerToDelete.denomination}" deleted`));
-        await logActivity(t('Suppression usager', 'Famafana mpampiasa', 'Delete user'), `${t('Suppression de', 'Famafana an\'i', 'Deleting')} ${usagerToDelete.denomination}`);
-        setShowDeleteConfirm(false);
-        setUsagerToDelete(null);
+        setSuccessMsg(t(`Usager "${usagerToDelete.denomination}" supprimé`, `Voafafa`, `Deleted`));
+        await logActivity(t('Suppression usager', 'Famafana', 'Delete user'), `${t('Suppression de', 'Famafana', 'Deleting')} ${usagerToDelete.denomination}`);
+        closeDeleteConfirm();
         fetchUsagers(token);
         setTimeout(() => setSuccessMsg(null), 3000);
       } else {
-        alert(`${t('Erreur', 'Olana', 'Error')}: ${data.message || t('Impossible de supprimer l\'usager', 'Tsy afaka mamafa mpampiasa', 'Unable to delete user')}`);
+        await alertUser(`${t('Erreur', 'Olana', 'Error')}: ${data.message || 'Erreur'}`);
       }
     } catch (error) {
       console.error('handleDeleteUsager error:', error);
-      alert(t('Erreur de connexion', 'Nisy olana tamin\'ny fifandraisana', 'Connection error'));
+      await alertUser(t('Erreur de connexion', 'Nisy olana', 'Connection error'));
     }
   };
 
-  // ----------------------------------------------
-  // 5. RENDU
-  // ----------------------------------------------
   const filteredUsers = users.filter(user =>
     user?.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user?.email?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -564,24 +827,26 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       <div className="admin-panel-error">
         <div className="error-container">
           <p style={{ color: 'red' }}>{error}</p>
-          <button onClick={onClose} className="close-btn">{t('Fermer', 'Hidio', 'Close')}</button>
+          <button onClick={handleClosePanel} className="close-btn">{t('Fermer', 'Hidio', 'Close')}</button>
         </div>
       </div>
     );
   }
 
+  const editingUser = editingUserId ? users.find(u => u.id === editingUserId) : null;
+
   return (
     <div className="admin-panel">
       {successMsg && <div className="success-message">✓ {successMsg}</div>}
-      {error && <div className="error-message">⚠️ {error}</div>}
 
-      {/* ✅ En-tête unique : Administration OMDA */}
       <div className="admin-header">
         <div className="header-content">
           <h1>
             <Crown size={24} /> {t('Administration OMDA', 'Fitantanana OMDA', 'OMDA Administration')}
+            {isSuperAdmin && <span className="role-tag role-super">⭐ Super Admin</span>}
+            {!isSuperAdmin && <span className="role-tag role-super">👑 Admin</span>}
           </h1>
-          <button className="close-btn" onClick={onClose}>
+          <button className="close-btn" onClick={handleClosePanel}>
             ✕ {t('Fermer', 'Hidio', 'Close')}
           </button>
         </div>
@@ -618,7 +883,6 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
         </div>
       </div>
 
-      {/* ✅ Onglets sans "Notifications" */}
       <div className="tabs">
         <button className={`tab ${activeTab === 'users' ? 'active' : ''}`} onClick={() => setActiveTab('users')}>
           <Users size={16} /> {t('Utilisateurs', 'Mpampiasa', 'Users')}
@@ -635,6 +899,12 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
         <button className={`tab ${activeTab === 'regions' ? 'active' : ''}`} onClick={() => setActiveTab('regions')}>
           <MapPin size={16} /> {t('Régions', 'Faritra', 'Regions')}
         </button>
+        {/* ✅ NOUVEAU : Onglet Gestion BD Admin (Super Admin uniquement) */}
+        {isSuperAdmin && (
+          <button className={`tab ${activeTab === 'gestion-bd' ? 'active' : ''}`} onClick={() => setActiveTab('gestion-bd')}>
+            <Database size={16} /> {t('Gestion BD Admin', 'Fitantanana BD', 'DB Admin')}
+          </button>
+        )}
       </div>
 
       {/* ---- ONGLET UTILISATEURS ---- */}
@@ -648,7 +918,7 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="search-input"
             />
-            {isSuperAdmin && (
+            {canManageUsers && (
               <button className="btn-add" onClick={() => setShowAddForm(true)}>
                 <UserPlus size={16} /> {t('Ajouter', 'Hanampy', 'Add')}
               </button>
@@ -670,8 +940,9 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
               <tbody>
                 {filteredUsers.map(user => {
                   const roleInfo = getRoleBadge(user.role);
-                  const isSuperAdminUser = user.role === 'super_admin';
-                  const canToggle = !isSuperAdminUser;
+                  const isSuperAdminUser = user.role === ROLES.SUPER_ADMIN;
+                  const canToggle = canChangeStatus && !isSuperAdminUser;
+
                   return (
                     <tr key={user.id} className={user.statut === 'inactif' ? 'inactive-row' : ''}>
                       <td>{user.id}</td>
@@ -695,9 +966,9 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
                       </td>
                       <td>{new Date(user.created_at).toLocaleDateString(locale)}</td>
                       <td className="actions">
-                        {isSuperAdmin && !isSuperAdminUser && (
+                        {canManageUsers && !isSuperAdminUser && (
                           <>
-                            <button className="btn-edit" onClick={() => setEditingUser(user)} title={t('Modifier', 'Ovay', 'Edit')}>
+                            <button className="btn-edit" onClick={() => openEditUser(user)} title={t('Modifier', 'Ovay', 'Edit')}>
                               <Edit size={14} />
                             </button>
                             <button className="btn-delete" onClick={() => handleDeleteUser(user.id, user.nom, user.role)} title={t('Supprimer', 'Fafao', 'Delete')}>
@@ -705,13 +976,13 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
                             </button>
                           </>
                         )}
-                        {isSuperAdmin && isSuperAdminUser && (
-                          <span className="action-locked" title={t('Super Admin protégé', 'Voaaro ny Super Admin', 'Super Admin protected')}>
+                        {canManageUsers && isSuperAdminUser && (
+                          <span className="action-locked" title={t('Super Admin protégé', 'Voaaro', 'Protected')}>
                             <Lock size={14} />
                           </span>
                         )}
-                        {isSimpleAdmin && (
-                          <span className="action-locked" title={t('Non autorisé', 'Tsy nahazo alalana', 'Not allowed')}>
+                        {!canManageUsers && isDaf && (
+                          <span className="action-locked" title={t('Seul le statut est modifiable', 'Ny sata ihany', 'Only status')}>
                             <Lock size={14} />
                           </span>
                         )}
@@ -731,7 +1002,7 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
           <h3><Activity size={18} /> {t('Historique des activités', 'Tantaran\'ny hetsika', 'Activity history')}</h3>
           {activities.length === 0 ? (
             <p style={{ textAlign: 'center', color: '#78909c', padding: '30px' }}>
-              {t('Aucune activité enregistrée', 'Tsy misy hetsika voarakitra', 'No activity recorded')}
+              {t('Aucune activité enregistrée', 'Tsy misy hetsika', 'No activity')}
             </p>
           ) : (
             <div className="table-wrapper">
@@ -764,8 +1035,6 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       {activeTab === 'settings' && (
         <div className="content">
           <div className="settings-container">
-
-            {/* ✅ CARTE SUPER ADMINISTRATEURS (version simplifiée) */}
             <div className="settings-card">
               <div className="settings-card-header">
                 <Crown size={24} className="settings-icon" />
@@ -779,7 +1048,7 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
                   </h3>
                   <p className="settings-subtitle">
                     {isSuperAdmin
-                      ? t('Tous les super administrateurs', 'Ny super administrateur rehetra', 'All super administrators')
+                      ? t('Tous les super administrateurs', 'Rehetra', 'All')
                       : t('Lecture seule', 'Vakiana ihany', 'Read only')}
                   </p>
                 </div>
@@ -787,7 +1056,7 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
               <div className="settings-card-content">
                 {superAdmins.length === 0 ? (
                   <p style={{ color: '#78909c', textAlign: 'center', padding: '20px' }}>
-                    {t('Aucun Super Admin trouvé', 'Tsy misy Super Admin hita', 'No Super Admin found')}
+                    {t('Aucun Super Admin trouvé', 'Tsy misy', 'None')}
                   </p>
                 ) : (
                   <div className="superadmins-grid">
@@ -798,7 +1067,6 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
                           key={sa.id}
                           className={`superadmin-card ${isCurrent ? 'superadmin-card-current' : ''}`}
                         >
-                          {/* En-tête : avatar + nom + badge */}
                           <div className="superadmin-card-header">
                             <div className="superadmin-avatar">
                               {sa.nom?.charAt(0)?.toUpperCase() || '?'}
@@ -816,7 +1084,6 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
                             </div>
                           </div>
 
-                          {/* Corps : Email + Statut en flex */}
                           <div className="superadmin-card-body">
                             <div className="superadmin-info-row">
                               <span className="superadmin-label">📧 Email</span>
@@ -832,7 +1099,6 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
                             </div>
                           </div>
 
-                          {/* Action */}
                           {isSuperAdmin && (
                             <div className="superadmin-card-actions">
                               <button
@@ -851,14 +1117,13 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
               </div>
             </div>
 
-            {/* CARTE STATISTIQUES */}
             <div className="settings-card">
               <div className="settings-card-header">
                 <BarChart size={24} className="settings-icon" />
                 <div>
-                  <h3>{t('Statistiques Générales', 'Statistika ankapobeny', 'General Statistics')}</h3>
+                  <h3>{t('Statistiques Générales', 'Statistika', 'Statistics')}</h3>
                   <p className="settings-subtitle">
-                    {t('Aperçu de l\'activité', 'Topi-mason\'ny hetsika', 'Activity overview')}
+                    {t('Aperçu de l\'activité', 'Topi-maso', 'Overview')}
                   </p>
                 </div>
               </div>
@@ -901,40 +1166,80 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
         </div>
       )}
 
+      {/* ✅ NOUVEAU : Onglet Gestion BD Admin (Super Admin uniquement) */}
+      {activeTab === 'gestion-bd' && isSuperAdmin && (
+        <div className="content gestion-content">
+          <GestionBdAdmin />
+        </div>
+      )}
+
       {/* ---- MODAL : Ajout utilisateur ---- */}
-      {showAddForm && isSuperAdmin && (
-        <div className="modal">
-          <div className="modal-content">
+      {showAddForm && canManageUsers && (
+        <div
+          className="modal"
+          key="modal-add-user"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) closeAddForm(); }}
+        >
+          <div className="modal-content" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3><UserPlus size={20} /> {t('Ajouter un utilisateur', 'Hanampy mpampiasa', 'Add a user')}</h3>
-              <button className="modal-close" onClick={() => setShowAddForm(false)}>✕</button>
+              <h3><UserPlus size={20} /> {t('Ajouter un utilisateur', 'Hanampy', 'Add a user')}</h3>
+              <button className="modal-close" onClick={closeAddForm}>✕</button>
             </div>
-            <form onSubmit={handleAddUser}>
+            <form onSubmit={handleAddUser} autoComplete="off">
               <div className="form-group">
-                <label>{t('Nom complet', 'Anarana feno', 'Full name')} *</label>
-                <input type="text" value={formData.nom} onChange={(e) => setFormData({ ...formData, nom: e.target.value })} required />
+                <label>{t('Nom complet', 'Anarana', 'Full name')} *</label>
+                <input
+                  key="add-nom"
+                  ref={addUserFirstInputRef}
+                  type="text"
+                  name="add_nom"
+                  autoComplete="off"
+                  value={formData.nom}
+                  onChange={(e) => setFormData(prev => ({ ...prev, nom: e.target.value }))}
+                  required
+                />
               </div>
               <div className="form-group">
                 <label>Email *</label>
-                <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required />
+                <input
+                  key="add-email"
+                  type="email"
+                  name="add_email"
+                  autoComplete="off"
+                  value={formData.email}
+                  onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                  required
+                />
               </div>
               <div className="form-group">
-                <label>{t('Mot de passe', 'Teny miafina', 'Password')} *</label>
-                <input type="password" maxLength="4" placeholder={t('4 chiffres', '4 isa', '4 digits')} value={formData.mot_de_passe} onChange={(e) => setFormData({ ...formData, mot_de_passe: e.target.value })} required />
-                <small>{t('Le mot de passe doit contenir 4 chiffres', 'Tsy maintsy misy isa 4 ny teny miafina', 'Password must contain 4 digits')}</small>
+                <label>{t('Code d\'accès', 'Kaody', 'Access code')} *</label>
+                <input
+                  key="add-motdepasse"
+                  type="text"
+                  name="add_motdepasse"
+                  autoComplete="off"
+                  maxLength="4"
+                  placeholder={t('4 caractères', '4 litera', '4 chars')}
+                  value={formData.mot_de_passe}
+                  onChange={(e) => {
+                    const v = filterPassword(e.target.value);
+                    setFormData(prev => ({ ...prev, mot_de_passe: v }));
+                  }}
+                  required
+                />
               </div>
               <div className="form-row">
                 <div className="form-group">
                   <label>{t('Rôle', 'Andraikitra', 'Role')}</label>
-                  <select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })}>
+                  <select value={formData.role} onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))}>
                     <option value="user">👤 {t('Utilisateur', 'Mpampiasa', 'User')}</option>
-                    <option value="admin">👑 {t('Administrateur', 'Mpandrindra', 'Administrator')}</option>
                     <option value="daf">📊 DAF</option>
+                    <option value="admin">👑 Admin</option>
                   </select>
                 </div>
                 <div className="form-group">
                   <label>{t('Statut', 'Toe-javatra', 'Status')}</label>
-                  <select value={formData.statut} onChange={(e) => setFormData({ ...formData, statut: e.target.value })}>
+                  <select value={formData.statut} onChange={(e) => setFormData(prev => ({ ...prev, statut: e.target.value }))}>
                     <option value="actif">🟢 {t('Actif', 'Mavitrika', 'Active')}</option>
                     <option value="inactif">🔴 {t('Inactif', 'Tsy mavitrika', 'Inactive')}</option>
                   </select>
@@ -942,7 +1247,7 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
               </div>
               <div className="modal-buttons">
                 <button type="submit" className="btn-save">✅ {t('Ajouter', 'Hanampy', 'Add')}</button>
-                <button type="button" className="btn-cancel" onClick={() => setShowAddForm(false)}>❌ {t('Annuler', 'Foanana', 'Cancel')}</button>
+                <button type="button" className="btn-cancel" onClick={closeAddForm}>❌ {t('Annuler', 'Foanana', 'Cancel')}</button>
               </div>
             </form>
           </div>
@@ -950,39 +1255,86 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       )}
 
       {/* ---- MODAL : Édition utilisateur ---- */}
-      {editingUser && isSuperAdmin && (
-        <div className="modal">
-          <div className="modal-content">
+      {editingUserId && editingUser && canManageUsers && (
+        <div
+          className="modal"
+          key={`modal-edit-user-${editingUserId}`}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) closeEditUser(); }}
+        >
+          <div className="modal-content" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3><Edit size={20} /> {t('Modifier', 'Ovay', 'Edit')} {editingUser.nom}</h3>
-              <button className="modal-close" onClick={() => setEditingUser(null)}>✕</button>
+              <button className="modal-close" onClick={closeEditUser}>✕</button>
             </div>
-            <form onSubmit={handleEditUser}>
+            <form onSubmit={handleEditUser} autoComplete="off">
               <div className="form-group">
-                <label>{t('Nom complet', 'Anarana feno', 'Full name')}</label>
-                <input type="text" value={editingUser.nom} onChange={(e) => setEditingUser({ ...editingUser, nom: e.target.value })} required />
+                <label>{t('Nom complet', 'Anarana', 'Full name')}</label>
+                <input
+                  key="edit-user-nom"
+                  ref={editUserFirstInputRef}
+                  type="text"
+                  name="edit_user_nom"
+                  autoComplete="off"
+                  value={editUserForm.nom}
+                  onChange={(e) => setEditUserForm(prev => ({ ...prev, nom: e.target.value }))}
+                  required
+                />
               </div>
               <div className="form-group">
                 <label>Email</label>
-                <input type="email" value={editingUser.email} onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })} required />
+                <input
+                  key="edit-user-email"
+                  type="email"
+                  name="edit_user_email"
+                  autoComplete="off"
+                  value={editUserForm.email}
+                  onChange={(e) => setEditUserForm(prev => ({ ...prev, email: e.target.value }))}
+                  required
+                />
               </div>
               <div className="form-group">
-                <label>{t('Nouveau mot de passe', 'Teny miafina vaovao', 'New password')}</label>
-                <input type="password" maxLength="4" placeholder={t('4 chiffres - laisser vide', '4 isa - avelao foana', '4 digits - leave blank')} value={editingUser.mot_de_passe || ''} onChange={(e) => setEditingUser({ ...editingUser, mot_de_passe: e.target.value })} />
-                <small>{t('Le mot de passe doit contenir 4 chiffres', 'Tsy maintsy misy isa 4 ny teny miafina', 'Password must contain 4 digits')}</small>
+                <label>
+                  {t('Nouveau code', 'Kaody vaovao', 'New code')}
+                  <small style={{ color: '#78909c', marginLeft: 8, fontWeight: 'normal', fontSize: '0.85em' }}>
+                    ({t('laisser vide pour ne pas changer', 'avelao foana', 'leave empty to keep')})
+                  </small>
+                </label>
+                <input
+                  key="edit-user-motdepasse"
+                  type="text"
+                  name="edit_user_motdepasse"
+                  autoComplete="off"
+                  maxLength="4"
+                  placeholder="••••"
+                  value={editUserForm.mot_de_passe}
+                  onChange={(e) => {
+                    const v = filterPassword(e.target.value);
+                    setEditUserForm(prev => ({ ...prev, mot_de_passe: v }));
+                  }}
+                />
               </div>
               <div className="form-row">
                 <div className="form-group">
                   <label>{t('Rôle', 'Andraikitra', 'Role')}</label>
-                  <select value={editingUser.role} onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })} disabled={editingUser.role === 'super_admin'}>
+                  <select
+                    key="edit-user-role"
+                    value={editUserForm.role}
+                    onChange={(e) => setEditUserForm(prev => ({ ...prev, role: e.target.value }))}
+                    disabled={editUserForm.role === ROLES.SUPER_ADMIN}
+                  >
                     <option value="user">👤 {t('Utilisateur', 'Mpampiasa', 'User')}</option>
-                    <option value="admin">👑 {t('Administrateur', 'Mpandrindra', 'Administrator')}</option>
                     <option value="daf">📊 DAF</option>
+                    <option value="admin">👑 Admin</option>
                   </select>
                 </div>
                 <div className="form-group">
                   <label>{t('Statut', 'Toe-javatra', 'Status')}</label>
-                  <select value={editingUser.statut} onChange={(e) => setEditingUser({ ...editingUser, statut: e.target.value })} disabled={editingUser.role === 'super_admin'}>
+                  <select
+                    key="edit-user-statut"
+                    value={editUserForm.statut}
+                    onChange={(e) => setEditUserForm(prev => ({ ...prev, statut: e.target.value }))}
+                    disabled={editUserForm.role === ROLES.SUPER_ADMIN}
+                  >
                     <option value="actif">🟢 {t('Actif', 'Mavitrika', 'Active')}</option>
                     <option value="inactif">🔴 {t('Inactif', 'Tsy mavitrika', 'Inactive')}</option>
                   </select>
@@ -990,7 +1342,7 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
               </div>
               <div className="modal-buttons">
                 <button type="submit" className="btn-save">💾 {t('Enregistrer', 'Tehirizo', 'Save')}</button>
-                <button type="button" className="btn-cancel" onClick={() => setEditingUser(null)}>❌ {t('Annuler', 'Foanana', 'Cancel')}</button>
+                <button type="button" className="btn-cancel" onClick={closeEditUser}>❌ {t('Annuler', 'Foanana', 'Cancel')}</button>
               </div>
             </form>
           </div>
@@ -999,35 +1351,91 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
 
       {/* ---- MODAL : Édition Super Admin ---- */}
       {showEditSuperAdmin && currentSuperAdmin && isSuperAdmin && (
-        <div className="modal">
-          <div className="modal-content">
+        <div
+          className="modal"
+          key={`modal-edit-super-admin-${currentSuperAdmin.id}`}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) closeEditSuperAdmin(); }}
+        >
+          <div className="modal-content" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>
-                <Crown size={20} /> {t('Modifier le compte Super Admin', 'Ovay ny kaonty Super Admin', 'Edit Super Admin account')}
-              </h3>
-              <button className="modal-close" onClick={() => setShowEditSuperAdmin(false)}>✕</button>
+              <h3><Crown size={20} /> {t('Modifier le compte Super Admin', 'Ovay', 'Edit Super Admin')}</h3>
+              <button className="modal-close" onClick={closeEditSuperAdmin}>✕</button>
             </div>
-            <form onSubmit={handleUpdateSuperAdmin}>
+            <form onSubmit={handleUpdateSuperAdmin} autoComplete="off">
               <div className="form-group">
-                <label>{t('Nom complet', 'Anarana feno', 'Full name')}</label>
-                <input type="text" value={superAdminData.nom} onChange={(e) => setSuperAdminData({ ...superAdminData, nom: e.target.value })} required />
+                <label>{t('Nom complet', 'Anarana', 'Full name')}</label>
+                <input
+                  key="sa-nom"
+                  ref={editSuperAdminFirstInputRef}
+                  type="text"
+                  name="sa_nom"
+                  autoComplete="off"
+                  value={superAdminData.nom}
+                  onChange={(e) => setSuperAdminData(prev => ({ ...prev, nom: e.target.value }))}
+                  required
+                />
               </div>
               <div className="form-group">
                 <label>Email</label>
-                <input type="email" value={superAdminData.email} onChange={(e) => setSuperAdminData({ ...superAdminData, email: e.target.value })} required />
+                <input
+                  key="sa-email"
+                  type="email"
+                  name="sa_email"
+                  autoComplete="off"
+                  value={superAdminData.email}
+                  onChange={(e) => setSuperAdminData(prev => ({ ...prev, email: e.target.value }))}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  {t('Nouveau code', 'Kaody vaovao', 'New code')}
+                  <small style={{ color: '#78909c', marginLeft: 8, fontWeight: 'normal', fontSize: '0.85em' }}>
+                    ({t('laisser vide pour ne pas changer', 'avelao foana', 'leave empty to keep')})
+                  </small>
+                </label>
+                <input
+                  key="sa-motdepasse"
+                  type="text"
+                  name="sa_motdepasse"
+                  autoComplete="off"
+                  maxLength="4"
+                  placeholder="••••"
+                  value={superAdminData.mot_de_passe}
+                  onChange={(e) => {
+                    const v = filterPassword(e.target.value);
+                    setSuperAdminData(prev => ({ ...prev, mot_de_passe: v }));
+                  }}
+                />
               </div>
               <div className="form-group">
-                <label>{t('Nouveau mot de passe', 'Teny miafina vaovao', 'New password')}</label>
-                <input type="password" maxLength="4" placeholder={t('4 chiffres', '4 isa', '4 digits')} value={superAdminData.mot_de_passe} onChange={(e) => setSuperAdminData({ ...superAdminData, mot_de_passe: e.target.value })} />
-                <small>{t('Le mot de passe doit contenir 4 chiffres', 'Tsy maintsy misy isa 4 ny teny miafina', 'Password must contain 4 digits')}</small>
-              </div>
-              <div className="form-group">
-                <label>{t('Confirmer le mot de passe', 'Hamafiso ny teny miafina', 'Confirm password')}</label>
-                <input type="password" maxLength="4" placeholder={t('4 chiffres', '4 isa', '4 digits')} value={superAdminData.confirm_mot_de_passe} onChange={(e) => setSuperAdminData({ ...superAdminData, confirm_mot_de_passe: e.target.value })} />
+                <label>{t('Confirmer le code', 'Hamafiso', 'Confirm')}</label>
+                <input
+                  key="sa-confirm"
+                  type="text"
+                  name="sa_confirm"
+                  autoComplete="off"
+                  maxLength="4"
+                  placeholder="••••"
+                  value={superAdminData.confirm_mot_de_passe}
+                  onChange={(e) => {
+                    const v = filterPassword(e.target.value);
+                    setSuperAdminData(prev => ({ ...prev, confirm_mot_de_passe: v }));
+                  }}
+                  disabled={!superAdminData.mot_de_passe}
+                />
+                {!superAdminData.mot_de_passe && (
+                  <small style={{ color: '#78909c', fontSize: '0.8em', display: 'block', marginTop: 4 }}>
+                    {t('Le champ se déverrouille dès que vous saisissez un nouveau code.',
+                       'Mihidy ny saha raha tsy misy kaody vaovao.',
+                       'Field unlocks once you enter a new code.')}
+                  </small>
+                )}
               </div>
               <div className="modal-buttons">
                 <button type="submit" className="btn-save">💾 {t('Enregistrer', 'Tehirizo', 'Save')}</button>
-                <button type="button" className="btn-cancel" onClick={() => setShowEditSuperAdmin(false)}>❌ {t('Annuler', 'Foanana', 'Cancel')}</button>
+                <button type="button" className="btn-cancel" onClick={closeEditSuperAdmin}>❌ {t('Annuler', 'Foanana', 'Cancel')}</button>
               </div>
             </form>
           </div>
@@ -1035,50 +1443,104 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       )}
 
       {/* ---- MODAL : Édition Usager ---- */}
-      {showEditUsager && selectedUsager && isSuperAdmin && (
-        <div className="modal">
-          <div className="modal-content">
+      {showEditUsager && selectedUsager && canManageUsers && (
+        <div
+          className="modal"
+          key={`modal-edit-usager-${selectedUsager.id}`}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) closeEditUsager(); }}
+        >
+          <div className="modal-content" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3><Edit size={20} /> {t('Modifier', 'Ovay', 'Edit')} {selectedUsager.denomination}</h3>
-              <button className="modal-close" onClick={() => setShowEditUsager(false)}>✕</button>
+              <button className="modal-close" onClick={closeEditUsager}>✕</button>
             </div>
-            <form onSubmit={handleUpdateUsager}>
+            <form onSubmit={handleUpdateUsager} autoComplete="off">
               <div className="form-group">
                 <label>{t('Dénomination', 'Anarana', 'Name')} *</label>
-                <input type="text" value={editingUsagerData.denomination} onChange={(e) => setEditingUsagerData({ ...editingUsagerData, denomination: e.target.value })} required />
+                <input
+                  key={`us-denom-${selectedUsager.id}`}
+                  ref={editUsagerFirstInputRef}
+                  type="text"
+                  name="us_denom"
+                  autoComplete="off"
+                  value={editingUsagerData.denomination}
+                  onChange={(e) => setEditingUsagerData(prev => ({ ...prev, denomination: e.target.value }))}
+                  required
+                />
               </div>
               <div className="form-group">
                 <label>{t('Demandeur', 'Mpangataka', 'Applicant')} *</label>
-                <input type="text" value={editingUsagerData.demandeur} onChange={(e) => setEditingUsagerData({ ...editingUsagerData, demandeur: e.target.value })} required />
+                <input
+                  key={`us-demandeur-${selectedUsager.id}`}
+                  type="text"
+                  name="us_demandeur"
+                  autoComplete="off"
+                  value={editingUsagerData.demandeur}
+                  onChange={(e) => setEditingUsagerData(prev => ({ ...prev, demandeur: e.target.value }))}
+                  required
+                />
               </div>
               <div className="form-group">
-                <label>{t('Type d\'usager', 'Karazana mpampiasa', 'User type')} *</label>
-                <select value={editingUsagerData.type_usager} onChange={(e) => setEditingUsagerData({ ...editingUsagerData, type_usager: e.target.value })} required>
+                <label>{t('Type d\'usager', 'Karazana', 'User type')} *</label>
+                <select
+                  key={`us-type-${selectedUsager.id}`}
+                  value={editingUsagerData.type_usager}
+                  onChange={(e) => setEditingUsagerData(prev => ({ ...prev, type_usager: e.target.value }))}
+                  required
+                >
                   <option value="">-- {t('Sélectionner', 'Misafidiana', 'Select')} --</option>
                   {usagerTypes.map(tp => <option key={tp} value={tp}>{tp}</option>)}
                 </select>
               </div>
               <div className="form-group">
                 <label>{t('Région', 'Faritra', 'Region')}</label>
-                <input type="text" value={editingUsagerData.region || ''} onChange={(e) => setEditingUsagerData({ ...editingUsagerData, region: e.target.value })} placeholder={t('Ex: Analamanga', 'Oh: Analamanga', 'E.g. Analamanga')} />
+                <input
+                  key={`us-region-${selectedUsager.id}`}
+                  type="text"
+                  name="us_region"
+                  autoComplete="off"
+                  value={editingUsagerData.region}
+                  onChange={(e) => setEditingUsagerData(prev => ({ ...prev, region: e.target.value }))}
+                />
               </div>
               <div className="form-group">
                 <label>{t('Adresse', 'Adiresy', 'Address')}</label>
-                <input type="text" value={editingUsagerData.adresse} onChange={(e) => setEditingUsagerData({ ...editingUsagerData, adresse: e.target.value })} />
+                <input
+                  key={`us-adresse-${selectedUsager.id}`}
+                  type="text"
+                  name="us_adresse"
+                  autoComplete="off"
+                  value={editingUsagerData.adresse}
+                  onChange={(e) => setEditingUsagerData(prev => ({ ...prev, adresse: e.target.value }))}
+                />
               </div>
               <div className="form-row">
                 <div className="form-group">
                   <label>{t('Téléphone', 'Finday', 'Phone')}</label>
-                  <input type="text" value={editingUsagerData.telephone} onChange={(e) => setEditingUsagerData({ ...editingUsagerData, telephone: e.target.value })} />
+                  <input
+                    key={`us-tel-${selectedUsager.id}`}
+                    type="text"
+                    name="us_tel"
+                    autoComplete="off"
+                    value={editingUsagerData.telephone}
+                    onChange={(e) => setEditingUsagerData(prev => ({ ...prev, telephone: e.target.value }))}
+                  />
                 </div>
                 <div className="form-group">
                   <label>Email</label>
-                  <input type="email" value={editingUsagerData.email} onChange={(e) => setEditingUsagerData({ ...editingUsagerData, email: e.target.value })} />
+                  <input
+                    key={`us-email-${selectedUsager.id}`}
+                    type="email"
+                    name="us_email"
+                    autoComplete="off"
+                    value={editingUsagerData.email}
+                    onChange={(e) => setEditingUsagerData(prev => ({ ...prev, email: e.target.value }))}
+                  />
                 </div>
               </div>
               <div className="modal-buttons">
                 <button type="submit" className="btn-save">💾 {t('Enregistrer', 'Tehirizo', 'Save')}</button>
-                <button type="button" className="btn-cancel" onClick={() => setShowEditUsager(false)}>❌ {t('Annuler', 'Foanana', 'Cancel')}</button>
+                <button type="button" className="btn-cancel" onClick={closeEditUsager}>❌ {t('Annuler', 'Foanana', 'Cancel')}</button>
               </div>
             </form>
           </div>
@@ -1086,16 +1548,20 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
       )}
 
       {/* ---- MODAL : Confirmer suppression usager ---- */}
-      {showDeleteConfirm && usagerToDelete && isSuperAdmin && (
-        <div className="modal">
-          <div className="modal-content">
+      {showDeleteConfirm && usagerToDelete && canManageUsers && (
+        <div
+          className="modal"
+          key="modal-delete-usager"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) closeDeleteConfirm(); }}
+        >
+          <div className="modal-content" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>⚠️ {t('Confirmer la suppression', 'Hanamafisana ny famafana', 'Confirm deletion')}</h3>
-              <button className="modal-close" onClick={() => setShowDeleteConfirm(false)}>✕</button>
+              <h3>⚠️ {t('Confirmer la suppression', 'Hamafiso', 'Confirm deletion')}</h3>
+              <button className="modal-close" onClick={closeDeleteConfirm}>✕</button>
             </div>
             <div style={{ padding: '20px 0' }}>
               <p style={{ fontSize: '16px', marginBottom: '10px' }}>
-                {t('Voulez-vous vraiment supprimer l\'usager :', 'Tena tianao ve ny mamafa ny mpampiasa :', 'Do you really want to delete the user:')}
+                {t('Voulez-vous vraiment supprimer :', 'Hamafa tokoa ve :', 'Delete:')}
               </p>
               <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#c62828' }}>
                 "{usagerToDelete.denomination}"
@@ -1105,17 +1571,25 @@ const AdminPanel = ({ onClose, adminToken: propToken, onLogout }) => {
                 {t('Demandeur', 'Mpangataka', 'Applicant')}: {usagerToDelete.demandeur}
               </p>
               <p style={{ fontSize: '14px', color: '#c62828', marginTop: '10px', fontWeight: 'bold' }}>
-                ⚠️ {t('Cette action est irréversible !', 'Tsy azo ivalozana ity hetsika ity !', 'This action is irreversible!')}
+                ⚠️ {t('Cette action est irréversible !', 'Tsy azo ivalozana !', 'Irreversible!')}
               </p>
             </div>
             <div className="modal-buttons">
               <button className="btn-save" onClick={handleDeleteUsager}>✅ {t('Confirmer', 'Hamarino', 'Confirm')}</button>
-              <button className="btn-cancel" onClick={() => setShowDeleteConfirm(false)}>❌ {t('Annuler', 'Foanana', 'Cancel')}</button>
+              <button className="btn-cancel" onClick={closeDeleteConfirm}>❌ {t('Annuler', 'Foanana', 'Cancel')}</button>
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+};
+
+const AdminPanel = (props) => {
+  return (
+    <LocalConfirmProvider>
+      <AdminPanelInner {...props} />
+    </LocalConfirmProvider>
   );
 };
 

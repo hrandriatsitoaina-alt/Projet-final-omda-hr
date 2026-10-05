@@ -795,7 +795,212 @@
 .modal-content::-webkit-scrollbar-track { background: #f5f5f5; border-radius: 10px; }
 .modal-content::-webkit-scrollbar-thumb { background: #bbdefb; border-radius: 10px; }
 .modal-content::-webkit-scrollbar-thumb:hover { background: #90caf9; }
+/* ============================================================ */
+/* ✅ TABLEAU GROUPÉ PAR RÉGION                                 */
+/* ============================================================ */
 
+.region-grouped-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.region-grouped-table thead th {
+  background: linear-gradient(135deg, #e3f2fd, #d6e8f7);
+  color: #0d47a1;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 2px solid #bbdefb;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.region-grouped-table tbody tr {
+  transition: all 0.2s ease;
+}
+
+/* ✅ Ligne de région (nom affiché) */
+.region-grouped-table tbody tr.ville-row:hover {
+  background: #f5faff;
+}
+
+.region-grouped-table tbody tr.ville-row {
+  border-bottom: 1px solid #f0f4f8;
+}
+
+/* ✅ Cellule Région */
+.region-name-cell {
+  padding: 12px 16px;
+  vertical-align: top;
+  min-width: 180px;
+  border-right: 2px solid #f0f4f8;
+}
+
+.region-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+  color: #0d47a1;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  border: 1px solid #90caf9;
+  box-shadow: 0 2px 6px rgba(25, 118, 210, 0.1);
+  white-space: nowrap;
+}
+
+.region-empty {
+  color: #90caf9;
+  font-size: 20px;
+  font-weight: 700;
+  padding-left: 20px;
+  display: inline-block;
+}
+
+/* ✅ Cellule Ville */
+.ville-cell {
+  padding: 12px 16px;
+  vertical-align: middle;
+}
+
+.ville-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  background: #e8f5e9;
+  color: #2e7d32;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 13px;
+  border: 1px solid #a5d6a7;
+}
+
+/* ✅ Cellule Quartier */
+.quartier-cell {
+  padding: 12px 16px;
+  vertical-align: middle;
+}
+
+.quartier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  background: #f3e5f5;
+  color: #6a1b9a;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 13px;
+  border: 1px solid #ce93d8;
+}
+
+/* ✅ Cellule Téléphone */
+.telephone-cell {
+  padding: 12px 16px;
+  vertical-align: middle;
+  color: #1565c0;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* ✅ Ligne "Aucune ville" */
+.no-data-inline {
+  padding: 12px 16px;
+  color: #90a4ae;
+  font-style: italic;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ✅ Cellule Actions */
+.region-grouped-table .actions-cell {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  vertical-align: middle;
+  flex-wrap: wrap;
+}
+
+/* ============================================================ */
+/* ✅ BANNIÈRE ERREUR                                            */
+/* ============================================================ */
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, #ffebee, #ffcdd2);
+  color: #b71c1c;
+  border-left: 5px solid #d32f2f;
+  font-weight: 600;
+  font-size: 14px;
+  box-shadow: 0 2px 8px rgba(211, 47, 47, 0.15);
+  animation: slideDown 0.3s ease-out;
+}
+
+/* ============================================================ */
+/* ✅ BOUTON AJOUT                                               */
+/* ============================================================ */
+.btn-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 3px 12px rgba(46, 204, 113, 0.3);
+}
+.btn-add:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(46, 204, 113, 0.4);
+}
+
+/* ============================================================ */
+/* ✅ RESPONSIVE                                                 */
+/* ============================================================ */
+@media (max-width: 900px) {
+  .region-grouped-table thead th {
+    padding: 10px 12px;
+    font-size: 11px;
+  }
+
+  .region-name-cell,
+  .ville-cell,
+  .quartier-cell,
+  .telephone-cell,
+  .region-grouped-table .actions-cell {
+    padding: 10px 12px;
+  }
+
+  .region-badge {
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+
+  .ville-badge,
+  .quartier-badge {
+    font-size: 11px;
+    padding: 4px 10px;
+  }
+
+  .region-grouped-table .actions-cell {
+    flex-direction: column;
+    gap: 6px;
+  }
+}
 /* ============================================================
    RESPONSIVE
    ============================================================ */

@@ -72,6 +72,9 @@ const GestionDossier = () => {
   const [qrCompteur, setQrCompteur] = useState(1);
   const [bilanData, setBilanData] = useState(null);
 
+  // ✅ NOUVEAU : Cache des régions pour QR (comme ConfirmationDossier)
+  const [regionsCache, setRegionsCache] = useState([]);
+
   const categoryMapping = useMemo(() => ({
     'Occasionnelle': 'occ',
     'Tele / Radio': 'media',
@@ -115,6 +118,41 @@ const GestionDossier = () => {
   const getDocumentsForType = useCallback((apiType) => {
     if (apiType === 'occ') return ['Facture', 'QR Code'];
     return ['Contrat', 'Facture', 'QR Code'];
+  }, []);
+
+  // ============================================================
+  // ✅ NOUVEAU : Charger les régions pour QR
+  // ============================================================
+  const loadRegions = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/regions`);
+      const data = await response.json();
+      if (data.success && Array.isArray(data.regions)) {
+        setRegionsCache(data.regions);
+        return data.regions;
+      }
+    } catch (error) {
+      console.error('⚠️ Erreur chargement régions:', error);
+    }
+    return [];
+  }, []);
+
+  // ✅ Récupérer les infos d'une région par son nom
+  const getRegionInfo = useCallback((regionName) => {
+    if (!regionName || !regionsCache || regionsCache.length === 0) return null;
+    const normalized = String(regionName).trim().toLowerCase();
+    return regionsCache.find(r => (r.nom || '').trim().toLowerCase() === normalized) || null;
+  }, [regionsCache]);
+
+  // ✅ Formater un numéro de téléphone
+  const formatPhoneNumber = useCallback((phone) => {
+    if (!phone) return '';
+    const cleaned = String(phone).replace(/\s/g, '').replace(/[^0-9]/g, '');
+    if (cleaned.length === 0) return '';
+    if (cleaned.length <= 3) return cleaned;
+    if (cleaned.length <= 5) return `${cleaned.slice(0, 3)} ${cleaned.slice(3)}`;
+    if (cleaned.length <= 8) return `${cleaned.slice(0, 3)} ${cleaned.slice(3, 5)} ${cleaned.slice(5)}`;
+    return `${cleaned.slice(0, 3)} ${cleaned.slice(3, 5)} ${cleaned.slice(5, 8)} ${cleaned.slice(8, 10)}`;
   }, []);
 
   const utilityFolders = useMemo(() => [
@@ -254,6 +292,11 @@ const GestionDossier = () => {
     fetchCurrentUser();
   }, []);
 
+  // ✅ Charger les régions au montage
+  useEffect(() => {
+    loadRegions();
+  }, [loadRegions]);
+
   useEffect(() => {
     const fetchStats = async () => {
       try {
@@ -336,7 +379,6 @@ const GestionDossier = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ loadUsagersByCategory : t RETIRÉ des dépendances
   const loadUsagersByCategory = useCallback(async (categoryName) => {
     setLoading(true);
     const apiType = categoryMapping[categoryName];
@@ -677,10 +719,55 @@ const GestionDossier = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getRefClientTypeFromApi]);
 
+  // ============================================================
+  // ✅ GÉNÉRATION QR — IDENTIQUE À ConfirmationDossier
+  //    Avec Ville / Quartier / Téléphone de la région
+  //    SANS parenthèses
+  // ============================================================
   const generateQRTextContent = useCallback((usager, type) => {
     if (!usager) return `© OMDA - ${t('Document officiel', 'Rakitra ofisialy', 'Official document')}`;
+
     const numeroDossier = usager.numero_dossier_utilisateur || `REF-${usager.id}`;
+    const omdaDefaultPhone = '034 05 533 88';
     const notSpecified = t('Non spécifié', 'Tsy voafaritra', 'Not specified');
+
+    // ✅ Récupérer ville/quartier/téléphone de la région
+    let ville = '';
+    let quartier = '';
+    let telephoneRegion = '';
+
+    const regionName = usager.region || usager.region_usager || '';
+
+    if (usager.ville) ville = String(usager.ville).trim();
+    if (usager.quartier) quartier = String(usager.quartier).trim();
+    if (usager.telephone_region) telephoneRegion = String(usager.telephone_region).trim();
+
+    if ((!ville || !quartier || !telephoneRegion) && regionName) {
+      const regionInfo = getRegionInfo(regionName);
+      if (regionInfo) {
+        if (!ville && regionInfo.ville) ville = String(regionInfo.ville).trim();
+        if (!quartier && regionInfo.quartier) quartier = String(regionInfo.quartier).trim();
+        if (!telephoneRegion && regionInfo.telephone) telephoneRegion = String(regionInfo.telephone).trim();
+      }
+    }
+
+    // ✅ Ligne Region sans parenthèses
+    const buildRegionLine = (region) => {
+      return `${t('Region', 'Faritra', 'Region')} : ${region || notSpecified}`;
+    };
+
+    // ✅ Footer : © OMDA Ville - Quartier - Tel : XXX
+    const buildFooterLine = () => {
+      const parts = [];
+      if (ville) parts.push(`© OMDA ${ville}`);
+      else parts.push(`© OMDA`);
+      if (quartier) parts.push(`${quartier}`);
+      const tel = telephoneRegion ? formatPhoneNumber(telephoneRegion) : omdaDefaultPhone;
+      parts.push(`Tel : ${tel}`);
+      return parts.join(' - ');
+    };
+
+    const footerLine = buildFooterLine();
 
     switch (type) {
       case 'occ': {
@@ -696,22 +783,125 @@ const GestionDossier = () => {
         }
         const lieu = usager.lieu_evenement || usager.adresse || notSpecified;
         const dateEvent = usager.date_evenement ? formatDateForQR(usager.date_evenement) : notSpecified;
-        return `OMDA affirme un événement OCC\n${t('Organisateur', 'Mpikarakara', 'Organizer')} : ${organisateurs}\n${t('Artistes', 'Mpihira', 'Artists')} : ${artistesStr}\n${t('Lieu', 'Toerana', 'Location')} : ${lieu}\n${t('Date', 'Daty', 'Date')} : ${dateEvent}\nRef : ${numeroDossier}\n© OMDA - Tel: 034 05 533 88`;
+        const evenement = usager.genre_manifestation || usager.nom_evenement || '';
+        const region = usager.region || usager.region_usager || '';
+
+        let lines = [
+          `OMDA ${t('affirme un evenement', 'manamarina hetsika', 'certifies an event')} OCC`,
+          `${t('Organisateur', 'Mpikarakara', 'Organizer')} : ${organisateurs}`,
+        ];
+        if (evenement) lines.push(`${t('Evenement', 'Hetsika', 'Event')} : ${evenement}`);
+        if (artistesStr && artistesStr !== notSpecified) {
+          lines.push(`${t('Artistes', 'Mpihira', 'Artists')} : ${artistesStr}`);
+        }
+        if (lieu) lines.push(`${t('Lieu', 'Toerana', 'Location')} : ${lieu}`);
+        if (dateEvent && dateEvent !== notSpecified) lines.push(`${t('Date', 'Daty', 'Date')} : ${dateEvent}`);
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
       }
-      case 'hotel':
-        return `OMDA affirme un établissement HOTEL\n${t('Nom', 'Anarana', 'Name')} : ${usager.denomination || usager.demandeur || 'HÔTEL'}\n${t('Adresse', 'Adiresy', 'Address')}: ${usager.adresse || usager.siege || 'N/A'}\n${t('Étoiles', 'Kintana', 'Stars')}: ${usager.etoiles || 'N/A'}\nRef: ${numeroDossier}\n© OMDA - Tel: 034 05 533 88`;
-      case 'grand-surface':
-        return `OMDA affirme un établissement MAGASIN\n${t('Nom', 'Anarana', 'Name')} : ${usager.denomination || usager.demandeur || 'N/A'}\n${t('Adresse', 'Adiresy', 'Address')}: ${usager.adresse || 'N/A'}\n${t('Nb magasins', 'Isan\'ny fivarotana', 'Stores')}: ${usager.nombre_magasins || 0}\nRef: ${numeroDossier}\n© OMDA - Tel: 034 05 533 88`;
-      case 'bus':
-        return `OMDA affirme une société BUS\n${t('Nom', 'Anarana', 'Name')} : ${usager.denomination || usager.demandeur || 'N/A'}\n${t('Type', 'Karazana', 'Type')}: ${usager.type_bus || 'N/A'}\n${t('Nb bus', 'Isan\'ny fiara', 'Buses')}: ${usager.nombre_vehicules || 0}\n${t('Lignes', 'Lalana', 'Lines')}: ${usager.lignes || 'N/A'}\nRef: ${numeroDossier}\n© OMDA - Tel: 034 05 533 88`;
-      case 'nightclub':
-        return `OMDA affirme un établissement NIGHT CLUB\n${t('Nom', 'Anarana', 'Name')} : ${usager.denomination || usager.demandeur || 'N/A'}\n${t('Adresse', 'Adiresy', 'Address')}: ${usager.adresse || 'N/A'}\n${t('Jauge', 'Fahaiza-mandray', 'Capacity')}: ${usager.jauge_max || 0}\n${t('Horaires', 'Ora', 'Hours')}: ${usager.horaires || 'N/A'}\nRef: ${numeroDossier}\n© OMDA - Tel: 034 05 533 88`;
-      case 'media':
-        return `OMDA affirme une station MEDIA\n${t('Nom', 'Anarana', 'Name')} : ${usager.denomination || usager.demandeur || 'N/A'}\n${t('Adresse', 'Adiresy', 'Address')}: ${usager.siege || usager.adresse || 'N/A'}\n${t('Canal/Fréquence', 'Fantsona/Fahita', 'Channel/Frequency')}: ${usager.canal || usager.frequence || 'N/A'}\nRef: ${numeroDossier}\n© OMDA - Tel: 034 05 533 88`;
+
+      case 'hotel': {
+        const denomination = usager.denomination || usager.demandeur || 'HÔTEL';
+        const adresse = usager.adresse || usager.siege || usager.adresse_siege || '';
+        const etoiles = usager.etoiles ? `${usager.etoiles} ${t('etoile(s)', 'kintana', 'star(s)')}` : '';
+        const region = usager.region || usager.region_usager || '';
+
+        let lines = [
+          `OMDA ${t('affirme un etablissement', 'manamarina trano', 'certifies an establishment')} HOTEL`,
+          `${t('Denomination', 'Anarana', 'Name')} : ${denomination}`,
+        ];
+        if (adresse) lines.push(`${t('Adresse', 'Adiresy', 'Address')} : ${adresse}`);
+        if (etoiles) lines.push(`${t('Categorie', 'Sokajy', 'Category')} : ${etoiles}`);
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
+      }
+
+      case 'grand-surface': {
+        const denomination = usager.denomination || usager.demandeur || '';
+        const adresse = usager.adresse || usager.siege || usager.adresse_siege || '';
+        const nb = usager.nombre_magasins || 0;
+        const region = usager.region || usager.region_usager || '';
+
+        let lines = [
+          `OMDA ${t('affirme un etablissement', 'manamarina trano', 'certifies an establishment')} MAGASIN`,
+          `${t('Denomination', 'Anarana', 'Name')} : ${denomination}`,
+        ];
+        if (adresse) lines.push(`${t('Adresse', 'Adiresy', 'Address')} : ${adresse}`);
+        if (nb > 0) lines.push(`${t('Nb magasins', 'Isan\'ny fivarotana', 'Stores')} : ${nb}`);
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
+      }
+
+      case 'bus': {
+        const denomination = usager.denomination || usager.demandeur || '';
+        const adresse = usager.adresse || usager.siege || usager.adresse_siege || '';
+        const lignes = usager.lignes || '';
+        const nb = usager.nombre_vehicules || 0;
+        const region = usager.region || usager.region_usager || '';
+
+        let lines = [
+          `OMDA ${t('affirme une societe', 'manamarina orinasa', 'certifies a company')} BUS`,
+          `${t('Denomination', 'Anarana', 'Name')} : ${denomination}`,
+        ];
+        if (adresse) lines.push(`${t('Adresse', 'Adiresy', 'Address')} : ${adresse}`);
+        if (lignes) lines.push(`${t('Lignes', 'Lalana', 'Lines')} : ${lignes}`);
+        if (nb > 0) lines.push(`${t('Vehicules', 'Fiara', 'Vehicles')} : ${nb}`);
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
+      }
+
+      case 'nightclub': {
+        const denomination = usager.denomination || usager.demandeur || '';
+        const adresse = usager.adresse || usager.siege || usager.adresse_siege || '';
+        const jauge = usager.jauge_max || 0;
+        const horaires = usager.horaires || '';
+        const region = usager.region || usager.region_usager || '';
+
+        let lines = [
+          `OMDA ${t('affirme un etablissement', 'manamarina trano', 'certifies an establishment')} NIGHT CLUB`,
+          `${t('Denomination', 'Anarana', 'Name')} : ${denomination}`,
+        ];
+        if (adresse) lines.push(`${t('Adresse', 'Adiresy', 'Address')} : ${adresse}`);
+        if (jauge > 0) lines.push(`${t('Jauge', 'Fahaiza-mandray', 'Capacity')} : ${jauge} ${t('pers.', 'olona', 'people')}`);
+        if (horaires) lines.push(`${t('Horaires', 'Ora', 'Hours')} : ${horaires}`);
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
+      }
+
+      case 'media': {
+        const denomination = usager.denomination || usager.demandeur || '';
+        const adresse = usager.siege || usager.adresse_siege || usager.adresse || '';
+        const frequence = usager.frequence || '';
+        const canal = usager.canal || '';
+        const region = usager.region || usager.region_usager || '';
+
+        let lines = [
+          `OMDA ${t('affirme une station', 'manamarina station', 'certifies a station')} MEDIA`,
+          `${t('Denomination', 'Anarana', 'Name')} : ${denomination}`,
+        ];
+        if (adresse) lines.push(`${t('Siege', 'Foibe', 'Head office')} : ${adresse}`);
+        if (frequence) lines.push(`${t('Frequence', 'Fahita', 'Frequency')} : ${frequence}`);
+        if (canal) lines.push(`${t('Canal', 'Fantsona', 'Channel')} : ${canal}`);
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
+      }
+
       default:
-        return `© OMDA - ${t('Document officiel', 'Rakitra ofisialy', 'Official document')}\nRef: ${numeroDossier}\n© OMDA - Tel: 034 05 533 88`;
+        return `© OMDA - ${t('Document officiel', 'Rakitra ofisialy', 'Official document')}\nRef: ${numeroDossier}\n${footerLine}`;
     }
-  }, [t, formatDateForQR]);
+  }, [t, formatDateForQR, getRegionInfo, formatPhoneNumber]);
 
   const handleOpenDocument = async (usager, docType) => {
     if (!usager) return;
@@ -1004,7 +1194,7 @@ const GestionDossier = () => {
           </div>
           <div className="ribbon-spacer" />
           <button className="ribbon-btn dashboard-btn" onClick={handleGoDashboard}>
-            <ArrowLeft size={16} /> <span>{t('Retour Dashboard', 'Hiverina amin\'ny Fandraisana', 'Back to Dashboard')}</span>
+            <ArrowLeft size={16} /> <span>{t('Accueil', 'Hiverina amin\'ny Fandraisana', 'Back to Dashboard')}</span>
           </button>
         </div>
 
@@ -1401,7 +1591,7 @@ const GestionDossier = () => {
                         />
                         <div className="qr-logo-styled">
                           <div className="qr-logo-circle">
-                            <img src="/logo.ico" alt="OMDA" className="qr-logo-img" />
+                            <img src="/logoqr.ico" alt="OMDA" className="qr-logo-img" />
                           </div>
                         </div>
                       </div>

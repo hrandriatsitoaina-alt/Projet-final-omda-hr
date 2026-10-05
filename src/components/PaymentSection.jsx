@@ -6,23 +6,19 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   DollarSign, PieChart, CreditCard, TrendingUp, Calendar,
-  FileText, Printer, Layers, BarChart3, BookOpen,
+  FileText, Printer, Layers, BarChart3, BookOpen, UserCircle,
 } from 'lucide-react';
 
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, Legend,
 } from 'recharts';
-// ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
 
 const PaymentSection = () => {
   const navigate = useNavigate();
-
-  // ✅ LANGUE UNIQUE — vient du Context
   const { t, langue } = useT();
 
-  // ✅ Locale pour formatage (mg → fr-MG)
   const locale = useMemo(() => {
     if (langue === 'en') return 'en-US';
     if (langue === 'mg') return 'fr-MG';
@@ -40,7 +36,6 @@ const PaymentSection = () => {
     usagersAyantPaye: 0,
   });
 
-  // ✅ Mois selon la langue (mémoïsés)
   const months = useMemo(() => {
     if (langue === 'en') {
       return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -51,44 +46,36 @@ const PaymentSection = () => {
     return ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
   }, [langue]);
 
-  // ✅ Types mémoïsés
   const TYPES = useMemo(() => [
     { key: 'hotel',        label: t('Hôtel',          'Trano fandraisam-bahiny', 'Hotel'),        color: '#4CAF50' },
     { key: 'grandSurface', label: t('Grande Surface', 'Trano fivarotana lehibe', 'Supermarket'),  color: '#2196F3' },
-    { key: 'bus',          label: t('Bus',            'Fiarakodia',              'Bus'),          color: '#FF9800' },
+    { key: 'bus',          label: t('Transport',      'Fitanterana',             'Transport'),    color: '#FF9800' },
     { key: 'nightclub',    label: t('Night Club',     'Kliobina alina',          'Night Club'),   color: '#9C27B0' },
     { key: 'media',        label: t('Média',          'Haino aman-jery',         'Media'),        color: '#E91E63' },
     { key: 'occ',          label: t('Occasionnelle',  'Tsindraindray',           'Occasional'),   color: '#00BCD4' },
   ], [t]);
 
-  // ✅ Format montant avec locale
   const formatMontant = useCallback((value) => {
     if (value === 0) return '0 Ar';
     return Math.round(value).toLocaleString(locale) + ' Ar';
   }, [locale]);
 
-  // ✅ Format axe Y avec locale
   const formatYAxis = useCallback((value) => {
     if (value === 0) return '0';
     return Math.round(value).toLocaleString(locale);
   }, [locale]);
 
-  // ✅ Label du montant (traduit)
   const montantLabel = useMemo(
     () => t('Montant (Ar)', 'Vola (Ar)', 'Amount (Ar)'),
     [t]
   );
 
-  // ============================================================
-  // ✅ fetchMonthlyData — SANS dépendance à la langue (garde les mois en interne)
-  // ============================================================
   useEffect(() => {
     const fetchMonthlyData = async () => {
       try {
         const token = localStorage.getItem('adminToken') || '';
         const currentYear = new Date().getFullYear();
 
-        // ✅ Mois FR utilisés en interne pour la clé (universel)
         const monthsKeys = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 
         const usagersRes = await fetch('http://localhost:3001/api/usagers', {
@@ -117,7 +104,6 @@ const PaymentSection = () => {
           };
         });
 
-        // Comptage des usagers par mois/type
         usagersData.forEach(u => {
           const date = new Date(u.created_at);
           if (date.getFullYear() === currentYear) {
@@ -139,7 +125,6 @@ const PaymentSection = () => {
           }
         });
 
-        // Montants par mois
         paiements.forEach(p => {
           if (p.statut === 'paye' && p.annee === currentYear) {
             const monthIndex = p.mois ? p.mois - 1 : new Date(p.date_paiement).getMonth();
@@ -150,14 +135,12 @@ const PaymentSection = () => {
           }
         });
 
-        // On garde un tableau avec moisIndex pour reconstruire les labels
         const data = monthsKeys.map((m, i) => ({
           moisIndex: i,
           ...monthlyMap[m],
         }));
         setMonthlyData(data);
 
-        // ===== Synthèse =====
         const totalUsagers = usagersData.length;
         const paiementsPayes = paiements.filter(p => p.statut === 'paye');
         const totalPayes = paiementsPayes.length;
@@ -198,13 +181,9 @@ const PaymentSection = () => {
     };
 
     fetchMonthlyData();
-    // ✅ Pas de appLangue dans les dépendances — les données ne doivent PAS être rechargées
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ============================================================
-  // ✅ chartData — reconstruit selon la langue (labels traduits)
-  // ============================================================
   const chartData = useMemo(() => {
     return monthlyData.map(d => ({
       mois: months[d.moisIndex] || '',
@@ -218,7 +197,6 @@ const PaymentSection = () => {
     }));
   }, [monthlyData, months, TYPES, montantLabel]);
 
-  // Tooltip personnalisé
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       return (
@@ -250,7 +228,6 @@ const PaymentSection = () => {
     usagersAyantPaye,
   } = statsSummary;
 
-  // Taux de paiement plafonné à 100%
   const tauxPaiement = totalUsagers > 0
     ? Math.min((usagersAyantPaye / totalUsagers) * 100, 100)
     : 0;
@@ -400,6 +377,11 @@ const PaymentSection = () => {
         <button className="btn-secondary" onClick={() => navigate('/quitance')}>
           <BookOpen size={18} /> {t('Suivi Quittances', 'Fanaraha-maso', 'Receipt tracking')}
         </button>
+
+        {/* ✅ NOUVEAU BOUTON — Compte */}
+        <button className="btn-secondary" onClick={() => navigate('/comptet')}>
+          <UserCircle size={18} /> {t('Compte', 'Kaonty', 'Account')}
+        </button>
       </div>
 
       {/* Pied */}
@@ -410,7 +392,7 @@ const PaymentSection = () => {
           {new Date().toLocaleDateString(locale)}
         </span>
         <span className="footer-total">
-          {t('Total collecté :', 'Vola voangona :', 'Total collected :')}{' '}
+          {t('Total collecté :', 'Vola voangoa :', 'Total collected :')}{' '}
           {formatMontant(totalMontant)}
         </span>
       </div>

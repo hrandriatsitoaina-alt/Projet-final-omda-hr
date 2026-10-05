@@ -284,9 +284,13 @@ const ConfirmePaiement = () => {
         payload.mois = null;
       } else {
         payload.annee = selectedYear;
-        payload.mois = moisSelectionnes.length > 0 ? moisSelectionnes[0] : new Date().getMonth() + 1;
+        payload.mois = moisSelectionnes.length > 0
+          ? moisSelectionnes[0]
+          : new Date().getMonth() + 1;
         payload.mois_payes = moisSelectionnes;
       }
+
+      console.log('📤 Payload envoyé:', payload);
 
       const response = await fetch('http://localhost:3001/api/paiements/enregistrer', {
         method: 'POST',
@@ -297,9 +301,29 @@ const ConfirmePaiement = () => {
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      // ⚠️ Lire le texte brut d'abord pour ne pas perdre l'info si le JSON est invalide
+      const rawText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.error('❌ Réponse non-JSON du serveur:', rawText);
+        throw new Error(`Réponse serveur invalide (HTTP ${response.status}): ${rawText.slice(0, 200)}`);
+      }
+
+      console.log('📥 Réponse serveur:', data);
+
+      if (!response.ok) {
+        throw new Error(data.message || `Erreur HTTP ${response.status}`);
+      }
+
       if (data.success) {
-        setNotification({ type: 'success', message: `✅ ${t('Paiement enregistré avec succès', 'Vita ny fandoavana', 'Payment recorded successfully')}` });
+        setNotification({
+          type: 'success',
+          message: `✅ ${t('Paiement enregistré avec succès', 'Vita ny fandoavana', 'Payment recorded successfully')}`
+        });
+
+        // ⚠️ On NE remet PAS isSubmitting à false : on va naviguer
         setTimeout(() => {
           navigate('/confirmation-dossier', {
             state: {
@@ -322,12 +346,18 @@ const ConfirmePaiement = () => {
           });
         }, 1500);
       } else {
-        setNotification({ type: 'error', message: `❌ ${data.message}` });
+        setNotification({
+          type: 'error',
+          message: `❌ ${data.message || t('Erreur inconnue', 'Olana tsy fantatra', 'Unknown error')}`
+        });
         setIsSubmitting(false);
       }
     } catch (error) {
-      console.error('❌ Erreur:', error);
-      setNotification({ type: 'error', message: `❌ ${t('Erreur lors de l\'enregistrement', 'Nisy olana tamin\'ny fitehirizana', 'Save error')}` });
+      console.error('❌ Erreur submitPayment:', error);
+      setNotification({
+        type: 'error',
+        message: `❌ ${error.message || t('Erreur lors de l\'enregistrement', 'Nisy olana tamin\'ny fitehirizana', 'Save error')}`
+      });
       setIsSubmitting(false);
     }
   };

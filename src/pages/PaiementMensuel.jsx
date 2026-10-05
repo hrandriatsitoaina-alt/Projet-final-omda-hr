@@ -1,5 +1,5 @@
 // src/pages/PaiementMensuel.jsx
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, CreditCard, Calendar, DollarSign, Hash, FileText, CheckCircle,
@@ -7,6 +7,7 @@ import {
   Printer, FileCheck, ReceiptText, ChevronDown, ChevronUp, AlertTriangle,
   Hotel, Store, Bus, Music, Tv, Tent, Check, X, ShieldCheck, Layers,
   Edit3, CheckSquare, Download, FileArchive, RefreshCw, UserCog, Package,
+  MoreVertical, Eye,
 } from 'lucide-react';
 import '../styles/paiement-mensuel.css';
 import MiniSidebar from '../components/MiniSidebar';
@@ -14,6 +15,8 @@ import { useToast } from '../components/Toast';
 import { generateFacturePDF } from './pdf/facture_pdf';
 import JSZip from 'jszip';
 import { useT } from '../hooks/useT';
+
+const API_URL = 'http://localhost:3001/api';
 
 const PaiementMensuel = () => {
   const navigate = useNavigate();
@@ -63,7 +66,19 @@ const PaiementMensuel = () => {
   const [quittanceValidee, setQuittanceValidee] = useState(false);
   const [personneRecu, setPersonneRecu] = useState('');
 
+  const [showQuittanceMenu, setShowQuittanceMenu] = useState(false);
+  const [showReferenceModal, setShowReferenceModal] = useState(false);
+  const [referenceInfo, setReferenceInfo] = useState(null);
+  const [isSavingQuittance, setIsSavingQuittance] = useState(false);
+  const menuRef = useRef(null);
+
   const [anneesDisponibles, setAnneesDisponibles] = useState([]);
+
+  const [typeFactureDAFC, setTypeFactureDAFC] = useState('DAFC');
+
+  const handleMontantWheel = (e) => {
+    e.target.blur();
+  };
 
   const moisLabels = useMemo(() => {
     if (langue === 'en') {
@@ -96,6 +111,27 @@ const PaiementMensuel = () => {
   const [isSavingUsager, setIsSavingUsager] = useState(false);
   const [usagerModifieRenouvellement, setUsagerModifieRenouvellement] = useState(false);
 
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setShowQuittanceMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const getCurrentUserId = () => {
+    try {
+      const userStr = localStorage.getItem('adminUser') || localStorage.getItem('user');
+      if (userStr) {
+        const u = JSON.parse(userStr);
+        return u.id || null;
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  };
+
   const getBackendType = (type) => {
     const backendTypes = {
       'hotel': 'Hôtel',
@@ -107,19 +143,6 @@ const PaiementMensuel = () => {
       'other': 'Hôtel',
     };
     return backendTypes[type] || 'Hôtel';
-  };
-
-  const getTypeLabel = (type) => {
-    const labels = {
-      'hotel': t('Hôtel', 'Hotely', 'Hotel'),
-      'grand-surface': t('Grand Surface', 'Fivarotana lehibe', 'Grand Surface'),
-      'bus': t('Bus', 'Bus', 'Bus'),
-      'nightclub': t('Night club', 'Club alina', 'Night club'),
-      'media': t('Télé/Radio', 'Fahitalavitra/Radio', 'TV/Radio'),
-      'occ': t('OCC', 'OCC', 'OCC'),
-      'other': t('Usager événementiel', 'Mpampiasa hetsika', 'Event user'),
-    };
-    return labels[type] || type;
   };
 
   const getTypeLabelAffichage = (type) => {
@@ -153,7 +176,6 @@ const PaiementMensuel = () => {
     return value.replace(/\D/g, '');
   };
 
-  // ✅ Vérifie si un mois est payé (moisPayes contient les données explosées)
   const estMoisPaye = (mois, annee) => {
     return moisPayes.some(p => Number(p.annee) === Number(annee) && Number(p.mois) === Number(mois));
   };
@@ -180,7 +202,6 @@ const PaiementMensuel = () => {
     return result;
   };
 
-  // ✅ CALCUL À LA VOLÉE
   const totalGeneral = useMemo(() => {
     const uniterActuel = parseInt(uniter) || 1;
     const montantActuel = parseFloat(montantMensuel) || 0;
@@ -195,7 +216,6 @@ const PaiementMensuel = () => {
     return total;
   }, [montantMensuel, uniter, isRetard, montantRetard, fraisRenouvellement, factureType, moisSelectionnes.length]);
 
-  // ✅ Distribution à la volée pour Type B
   const montantsParMoisMemo = useMemo(() => {
     if (factureType !== 'B' || moisSelectionnes.length === 0) return montantsParMois;
     const montantTotal = (parseFloat(montantMensuel) || 0) * (parseInt(uniter) || 1);
@@ -204,7 +224,6 @@ const PaiementMensuel = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factureType, moisSelectionnes.length, montantMensuel, uniter]);
 
-  // ✅ Sync montantsParMois pour Type B
   useEffect(() => {
     if (factureType === 'B' && moisSelectionnes.length > 0) {
       const montantTotal = (parseFloat(montantMensuel) || 0) * (parseInt(uniter) || 1);
@@ -224,7 +243,6 @@ const PaiementMensuel = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factureType, moisSelectionnes.length, montantMensuel, uniter]);
 
-  // ✅ Initialisation des montants depuis usager
   useEffect(() => {
     if (usager && usagerType) {
       let montantBase = 0;
@@ -430,7 +448,7 @@ const PaiementMensuel = () => {
         }),
       };
 
-      const response = await fetch(`http://localhost:3001/api/usagers/${usager.id}`, {
+      const response = await fetch(`${API_URL}/usagers/${usager.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -459,21 +477,107 @@ const PaiementMensuel = () => {
 
   const fetchLastQuittance = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/recfacture/quittance/last');
+      console.log('📄 Chargement du prochain numéro de quittance...');
+
+      const response = await fetch(`${API_URL}/quittance/reference`);
       const data = await response.json();
-      if (data.success && data.nextQuittance) {
-        const nextNumbers = getOnlyNumbers(data.nextQuittance);
-        setQuittance(nextNumbers);
-        return data.lastQuittance;
+
+      console.log('📊 Réponse /api/quittance/reference:', data);
+
+      if (data.success) {
+        const prochainFormate = data.prochainNumero || '0000001';
+        setQuittance(prochainFormate);
+        console.log('✅ Prochain numéro quittance:', prochainFormate);
+        return data.prochainNumeroNum || 1;
       }
-      return 0;
+
+      console.warn('⚠️ Fallback à 0000001');
+      setQuittance('0000001');
+      return 1;
     } catch (error) {
       console.error('❌ Erreur récupération quittance:', error);
-      return 0;
+      setQuittance('0000001');
+      return 1;
     }
   };
 
-  // ✅ Chargement initial
+  const handleEnregistrerQuittance = async () => {
+    setShowQuittanceMenu(false);
+
+    if (!quittance || quittance.trim() === '') {
+      showToast(
+        t('⚠️ Saisissez un numéro de quittance', '⚠️ Ampidiro ny laharana', '⚠️ Enter a receipt number'),
+        'error'
+      );
+      return;
+    }
+
+    const numeroSaisi = String(quittance).replace(/\D/g, '');
+
+    if (!numeroSaisi) {
+      showToast(
+        t('⚠️ Numéro invalide', '⚠️ Diso ny laharana', '⚠️ Invalid number'),
+        'error'
+      );
+      return;
+    }
+
+    setIsSavingQuittance(true);
+
+    try {
+      const numeroInt = parseInt(numeroSaisi, 10) || 1;
+      const longueurSaisie = Math.max(numeroSaisi.length, 7);
+      const numFormate = String(numeroInt).padStart(longueurSaisie, '0');
+
+      setQuittance(numFormate);
+      setQuittanceValidee(true);
+
+      showToast(
+        t(
+          `✅ Quittance ${numFormate} validée`,
+          `✅ Taratasy ${numFormate} voamarina`,
+          `✅ Receipt ${numFormate} validated`
+        ),
+        'success'
+      );
+
+      console.log('✅ Quittance validée localement:', numFormate);
+    } catch (error) {
+      console.error('❌ Erreur:', error);
+      showToast(
+        t('❌ Erreur', '❌ Nisy olana', '❌ Error'),
+        'error'
+      );
+    } finally {
+      setIsSavingQuittance(false);
+    }
+  };
+
+  const handleVoirReference = async () => {
+    setShowQuittanceMenu(false);
+
+    try {
+      const response = await fetch(`${API_URL}/quittance/reference`);
+      const data = await response.json();
+
+      if (data.success) {
+        setReferenceInfo(data);
+        setShowReferenceModal(true);
+      } else {
+        showToast(
+          t('❌ Impossible de récupérer la référence', '❌ Tsy afaka', '❌ Cannot fetch'),
+          'error'
+        );
+      }
+    } catch (error) {
+      console.error('❌ Erreur:', error);
+      showToast(
+        t('❌ Erreur de connexion', '❌ Nisy olana', '❌ Connection error'),
+        'error'
+      );
+    }
+  };
+
   useEffect(() => {
     const state = location.state;
     if (state && state.usagerId && state.usagerType) {
@@ -501,7 +605,7 @@ const PaiementMensuel = () => {
           usagerFinal = usagerFallback;
         } else {
           try {
-            const res = await fetch('http://localhost:3001/api/other-usagers');
+            const res = await fetch(`${API_URL}/other-usagers`);
             const data = await res.json();
             if (data.success && data.usagers) {
               const found = data.usagers.find(u => Number(u.id) === Number(id));
@@ -515,7 +619,7 @@ const PaiementMensuel = () => {
         }
       } else {
         try {
-          const response = await fetch(`http://localhost:3001/api/usagers/${type}/${id}`);
+          const response = await fetch(`${API_URL}/usagers/${type}/${id}`);
           if (response.ok) {
             const data = await response.json();
             if (data.success && data.usager) {
@@ -564,7 +668,7 @@ const PaiementMensuel = () => {
 
   const fetchAnneesDisponibles = async (type) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/paiements/annees-disponibles/${type}`);
+      const response = await fetch(`${API_URL}/paiements/annees-disponibles/${type}`);
       const data = await response.json();
 
       const currentYear = new Date().getFullYear();
@@ -611,25 +715,19 @@ const PaiementMensuel = () => {
     }
   };
 
-  // ============================================================
-  // ✅ CORRECTION : Exploser mois_payes pour construire moisPayes
-  // ============================================================
   const fetchPaiementsExistants = async (usagerId, type, anneeCible = null) => {
     try {
       const annee = anneeCible !== null ? anneeCible : selectedYear;
-      const response = await fetch(`http://localhost:3001/api/paiements/usager/${usagerId}/${type}`);
+      const response = await fetch(`${API_URL}/paiements/usager/${usagerId}/${type}`);
       const data = await response.json();
 
       if (data.success && Array.isArray(data.paiements)) {
-        // ✅ Filtrer les paiements de l'année cible
         const paiementsAnnee = data.paiements.filter(p => Number(p.annee) === Number(annee));
 
-        // ✅ Exploser mois_payes en pseudo-paiements (1 par mois)
         const paiementsExploses = [];
         for (const p of paiementsAnnee) {
           let moisList = [];
 
-          // Gérer les 2 formats : mois_payes (nouveau) et mois (ancien)
           if (p.mois_payes) {
             if (Array.isArray(p.mois_payes)) {
               moisList = p.mois_payes;
@@ -645,7 +743,6 @@ const PaiementMensuel = () => {
             moisList = [p.mois];
           }
 
-          // Créer une entrée par mois
           for (const m of moisList) {
             if (typeof m === 'number' && m >= 1 && m <= 12) {
               paiementsExploses.push({
@@ -714,42 +811,6 @@ const PaiementMensuel = () => {
       setMoisSelectionnes([...moisDisponibles]);
       setTousMois(true);
       setNombreMois(moisDisponibles.length);
-    }
-  };
-
-  const enregistrerPaiement = async (usagerId, usagerTypeParam, montant, datePaiement, mois, annee, montantRetardParam, isRetardParam) => {
-    try {
-      const token = localStorage.getItem('adminToken');
-      const payload = {
-        usagerId: usagerId,
-        usagerType: usagerTypeParam,
-        type_paiement: 'mensuel',
-        annee: annee,
-        mois: mois,
-        montant: montant,
-        date_paiement: datePaiement,
-        frais_dossier: 0,
-        montant_retard: montantRetardParam || 0,
-        est_retard: isRetardParam || false,
-        statut: 'paye',
-      };
-
-      const response = await fetch('http://localhost:3001/api/paiements/enregistrer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'adminToken': token || '',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const result = await response.json();
-      if (result.success) return true;
-      console.error(`❌ Erreur enregistrement paiement:`, result.message);
-      return false;
-    } catch (error) {
-      console.error(`❌ Erreur enregistrement paiement:`, error);
-      return false;
     }
   };
 
@@ -826,9 +887,39 @@ const PaiementMensuel = () => {
     }
   };
 
+  // ═══════════════════════════════════════════════════════════
+  // ✅ NOUVEAU : Récupérer le dernier ref_omda (pour Type B)
+  // ═══════════════════════════════════════════════════════════
+  const fetchLastRefOmda = async () => {
+    try {
+      const response = await fetch(`${API_URL}/factures/last-ref-omda`);
+      const data = await response.json();
+      if (data.success) {
+        return data.nextRefOmda || 1;
+      }
+      return null;
+    } catch (error) {
+      console.error('❌ Erreur récupération dernier ref_omda:', error);
+      return null;
+    }
+  };
+
   const genererFactures = async () => {
     if (!usager) {
       showToast(t('Aucun usager sélectionné', 'Tsy misy mpampiasa voafidy', 'No user selected'), 'error');
+      return;
+    }
+
+    const montantMensuelValide = parseFloat(montantMensuel);
+    if (!montantMensuel || isNaN(montantMensuelValide) || montantMensuelValide <= 0) {
+      showToast(
+        t(
+          '⚠️ Le montant mensuel est obligatoire pour générer la facture',
+          '⚠️ Tsy azo ihodivirana ny vola isam-bolana hamoronana faktiora',
+          '⚠️ Monthly amount is required to generate the invoice'
+        ),
+        'error'
+      );
       return;
     }
 
@@ -879,17 +970,17 @@ const PaiementMensuel = () => {
     const datePaiementCapture = paymentDate;
     const factureTypeCapture = factureType;
     const moisAPayer = [...moisSelectionnes].sort((a, b) => a - b);
+    const typeFactureCapture = typeFactureDAFC;
 
     try {
-      const lastQuittanceNumber = await fetchLastQuittance();
-      let currentQuittance = parseInt(quittance) || (lastQuittanceNumber + 1);
+      await fetchLastQuittance();
+      const numQuittanceActuel = parseInt(quittance, 10) || 1;
 
       if (!quittanceValidee) {
-        setQuittance(String(currentQuittance).padStart(7, '0'));
+        setQuittance(String(numQuittanceActuel).padStart(7, '0'));
         setQuittanceValidee(true);
       }
 
-      // ✅ NOUVEAU : Enregistrer TOUS les mois en UNE SEULE FOIS (1 ligne avec mois_payes)
       const montantTotalMois = moisAPayer.reduce((sum, mois) => {
         if (factureTypeCapture === 'B') {
           return sum + (parseFloat(montantsParMoisCapture[mois]) || 0);
@@ -910,13 +1001,13 @@ const PaiementMensuel = () => {
         montant_retard: montantRetardCapture,
         est_retard: isRetardCapture,
         annee: anneeCapture,
-        mois: moisAPayer[0], // mois de référence
-        mois_payes: moisAPayer, // ✅ TOUS les mois dans UNE ligne
+        mois: moisAPayer[0],
+        mois_payes: moisAPayer,
         nombre_mois: moisAPayer.length,
         statut: 'paye',
       };
 
-      const paiementRes = await fetch('http://localhost:3001/api/paiements/enregistrer', {
+      const paiementRes = await fetch(`${API_URL}/paiements/enregistrer`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -932,21 +1023,18 @@ const PaiementMensuel = () => {
         erreurs.push(paiementResult.message || t('Erreur enregistrement paiement', 'Olana tamin\'ny fitehirizana', 'Payment save error'));
       }
 
-      // ✅ Génération des factures (logique existante)
       if (factureTypeCapture === 'A') {
         let totalFacture = montantTotalCapture;
         if (isRetardCapture) totalFacture += montantRetardCapture;
 
-        const quittanceFacture = currentQuittance;
-
-        const response = await fetch('http://localhost:3001/api/factures/creer-avec-paiement-groupe', {
+        const response = await fetch(`${API_URL}/factures/creer-avec-paiement-groupe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             usagerId: usager.id,
             usagerType: usagerType,
             userId: userId,
-            typeFacture: 'DAFC',
+            typeFacture: typeFactureCapture,
             regionUsager: usager.region || '',
             personneRecu: personneRecu,
             montantMensuel: montantMensuelCapture,
@@ -962,7 +1050,7 @@ const PaiementMensuel = () => {
             typeGroupe: 'A',
             descriptionPersonnalisee: descriptionCapture,
             montantsParMois: montantsParMoisCapture,
-            quittance: quittanceFacture,
+            quittance: numQuittanceActuel,
             quittanceValidee: true,
             isRenouvellement: false,
             fraisRenouvellement: 0,
@@ -971,7 +1059,7 @@ const PaiementMensuel = () => {
 
         const result = await response.json();
         if (result.success) {
-          const factureResponse = await fetch(`http://localhost:3001/api/factures/${result.factureId}`);
+          const factureResponse = await fetch(`${API_URL}/factures/${result.factureId}`);
           const factureData = await factureResponse.json();
           if (factureData.success) {
             const factureComplete = {
@@ -991,18 +1079,28 @@ const PaiementMensuel = () => {
               frais_dossier: 0,
             };
             facturesGenereesList.push(factureComplete);
-            currentQuittance++;
           }
         } else {
           erreurs.push(result.message || t('Erreur génération facture A', 'Olana tamin\'ny famokarana faktiora A', 'Invoice A generation error'));
         }
       } else if (factureTypeCapture === 'B') {
-        const quittancePartage = currentQuittance;
+        // ═══════════════════════════════════════════════════════════
+        // ✅ TYPE B : Récupérer le refOmda de base UNE SEULE FOIS
+        // ═══════════════════════════════════════════════════════════
+        const quittancePartage = numQuittanceActuel;
+
+        // ✅ Récupérer le prochain ref_omda disponible AVANT la boucle
+        let refOmdaBase = await fetchLastRefOmda();
+        if (!refOmdaBase) {
+          console.warn('⚠️ Impossible de récupérer refOmdaBase, fallback sur premier appel');
+          refOmdaBase = null; // Le backend calculera MAX + 1 au premier appel
+        }
+        console.log(`📌 refOmdaBase pour Type B: ${refOmdaBase}`);
 
         for (let i = 0; i < moisAPayer.length; i++) {
           const mois = moisAPayer[i];
           const moisLabel = moisLabels[mois - 1];
-          const suffixe = String.fromCharCode(64 + i + 1);
+          const suffixe = String.fromCharCode(65 + i); // A, B, C, D, E, F, G, H, I, J, K, L
 
           const montantMoisReparti = parseFloat(montantsParMoisCapture[mois]) || 0;
           const montantMensuelPourFacture = montantMoisReparti / uniterCapture;
@@ -1010,14 +1108,14 @@ const PaiementMensuel = () => {
           let totalAvecRetard = montantMoisReparti + montantRetardCapture;
 
           try {
-            const response = await fetch('http://localhost:3001/api/factures/creer-avec-paiement', {
+            const response = await fetch(`${API_URL}/factures/creer-avec-paiement`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 usagerId: usager.id,
                 usagerType: usagerType,
                 userId: userId,
-                typeFacture: 'DAFC',
+                typeFacture: typeFactureCapture,
                 regionUsager: usager.region || '',
                 personneRecu: personneRecu,
                 montantMensuel: montantMensuelPourFacture,
@@ -1034,6 +1132,7 @@ const PaiementMensuel = () => {
                 descriptionPersonnalisee: descriptionCapture,
                 quittance: quittancePartage,
                 quittanceValidee: true,
+                refOmdaBase: refOmdaBase, // ✅ TOUJOURS LE MÊME pour tous les mois
                 isRenouvellement: false,
                 fraisRenouvellement: 0,
               }),
@@ -1041,7 +1140,14 @@ const PaiementMensuel = () => {
 
             const result = await response.json();
             if (result.success) {
-              const factureResponse = await fetch(`http://localhost:3001/api/factures/${result.factureId}`);
+              // ✅ Après le PREMIER appel, on récupère le refOmda effectivement utilisé
+              //    pour le transmettre aux appels suivants
+              if (i === 0 && refOmdaBase === null && result.refOmda) {
+                refOmdaBase = result.refOmda;
+                console.log(`📌 refOmdaBase récupéré du 1er appel: ${refOmdaBase}`);
+              }
+
+              const factureResponse = await fetch(`${API_URL}/factures/${result.factureId}`);
               const factureData = await factureResponse.json();
               if (factureData.success) {
                 const factureComplete = {
@@ -1070,8 +1176,6 @@ const PaiementMensuel = () => {
             erreurs.push(`${moisLabel} (${err.message || t('erreur technique', 'olana ara-teknika', 'technical error')})`);
           }
         }
-
-        currentQuittance++;
       } else if (factureTypeCapture === 'C') {
         let totalFacture = montantTotalCapture;
         if (isRetardCapture) totalFacture += montantRetardCapture;
@@ -1079,16 +1183,14 @@ const PaiementMensuel = () => {
           totalFacture += fraisRenouvellementCapture;
         }
 
-        const quittanceFacture = currentQuittance;
-
-        const response = await fetch('http://localhost:3001/api/factures/creer-avec-paiement-groupe', {
+        const response = await fetch(`${API_URL}/factures/creer-avec-paiement-groupe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             usagerId: usager.id,
             usagerType: usagerType,
             userId: userId,
-            typeFacture: 'DAFC',
+            typeFacture: typeFactureCapture,
             regionUsager: usager.region || '',
             personneRecu: personneRecu,
             montantMensuel: montantMensuelCapture,
@@ -1104,7 +1206,7 @@ const PaiementMensuel = () => {
             typeGroupe: 'C',
             descriptionPersonnalisee: descriptionCapture,
             montantsParMois: montantsParMoisCapture,
-            quittance: quittanceFacture,
+            quittance: numQuittanceActuel,
             quittanceValidee: true,
             isRenouvellement: fraisRenouvellementCapture > 0,
             fraisRenouvellement: fraisRenouvellementCapture,
@@ -1114,7 +1216,7 @@ const PaiementMensuel = () => {
 
         const result = await response.json();
         if (result.success) {
-          const factureResponse = await fetch(`http://localhost:3001/api/factures/${result.factureId}`);
+          const factureResponse = await fetch(`${API_URL}/factures/${result.factureId}`);
           const factureData = await factureResponse.json();
           if (factureData.success) {
             const factureComplete = {
@@ -1134,17 +1236,14 @@ const PaiementMensuel = () => {
               frais_dossier: fraisRenouvellementCapture,
             };
             facturesGenereesList.push(factureComplete);
-            currentQuittance++;
           }
         } else {
           erreurs.push(result.message || t('Erreur génération facture C', 'Olana tamin\'ny famokarana faktiora C', 'Invoice C generation error'));
         }
       }
 
-      const nextQuittance = String(currentQuittance).padStart(7, '0');
-      setQuittance(nextQuittance);
+      await fetchLastQuittance();
 
-      // ✅ Recharger les paiements après enregistrement
       if (paiementsOk > 0) {
         await fetchPaiementsExistants(usager.id, usagerType, anneeCapture);
       }
@@ -1160,7 +1259,6 @@ const PaiementMensuel = () => {
         if (paiementsOk > 0) {
           message += ` (${paiementsOk} ${t('paiement(s) enregistré(s)', 'fandoavana voarakitra', 'payment(s) recorded')})`;
         }
-        message += ` - ${t('Prochain quittance', 'Taratasy manaraka', 'Next receipt')}: ${nextQuittance}`;
 
         if (erreurs.length > 0) {
           message += `, ${t('mais', 'fa', 'but')} ${erreurs.length} ${t('mois en erreur', 'volana diso', 'months in error')}: ${erreurs.join(', ')}`;
@@ -1209,6 +1307,7 @@ const PaiementMensuel = () => {
   const moisDisponibles = getMoisDisponiblesRestants();
   const maxMoisDisponibles = moisDisponibles.length;
   const fraisRenouvValide = factureType === 'C' ? (parseFloat(fraisRenouvellement) > 0) : true;
+  const montantMensuelValide = montantMensuel && parseFloat(montantMensuel) > 0;
 
   const moisHaut = [1, 2, 3, 4, 5, 6];
   const moisBas = [7, 8, 9, 10, 11, 12];
@@ -1251,8 +1350,9 @@ const PaiementMensuel = () => {
               }}
               onClick={(e) => e.stopPropagation()}
               onFocus={(e) => e.target.select()}
+              onWheel={handleMontantWheel}
               placeholder={t('Montant', 'Vola', 'Amount')}
-              className="pm-mois-input"
+              className="pm-mois-input pm-no-spinner"
               step="1"
               min="0"
               autoComplete="off"
@@ -1284,184 +1384,6 @@ const PaiementMensuel = () => {
 
   return (
     <>
-      <style>{`
-        .pm-modal-overlay {
-          position: fixed !important;
-          top: 0 !important;
-          left: 0 !important;
-          right: 0 !important;
-          bottom: 0 !important;
-          background: rgba(15, 20, 35, 0.75) !important;
-          backdrop-filter: blur(4px);
-          -webkit-backdrop-filter: blur(4px);
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          z-index: 9999 !important;
-          padding: 20px;
-          overflow-y: auto;
-        }
-        .pm-modal-content {
-          background: #ffffff !important;
-          color: #1a1a2e !important;
-          border-radius: 16px;
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4) !important;
-          max-width: 900px;
-          width: 100%;
-          max-height: 90vh;
-          overflow-y: auto;
-          padding: 0;
-        }
-        .pm-modal-header {
-          background: #f8f9fa !important;
-          color: #1a1a2e !important;
-          padding: 18px 24px;
-          border-bottom: 1px solid #e5e7eb;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          border-radius: 16px 16px 0 0;
-          position: sticky;
-          top: 0;
-          z-index: 1;
-        }
-        .pm-modal-header h2 {
-          color: #1a1a2e !important;
-          margin: 0;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          font-size: 18px;
-        }
-        .pm-modal-close-btn {
-          background: transparent;
-          border: none;
-          color: #6b7280 !important;
-          font-size: 22px;
-          cursor: pointer;
-          padding: 4px 10px;
-          border-radius: 6px;
-          transition: all 0.2s;
-        }
-        .pm-modal-close-btn:hover {
-          background: #e5e7eb !important;
-          color: #1a1a2e !important;
-        }
-        .pm-modal-body {
-          padding: 24px;
-          background: #ffffff !important;
-          color: #1a1a2e !important;
-        }
-        .pm-modal-info-renouvellement {
-          background: #fff3cd !important;
-          color: #856404 !important;
-          padding: 12px 16px;
-          border-radius: 8px;
-          display: flex;
-          align-items: flex-start;
-          gap: 10px;
-          margin-bottom: 20px;
-          border-left: 4px solid #ffc107;
-          font-size: 13px;
-          line-height: 1.5;
-        }
-        .pm-modal-info-renouvellement svg {
-          flex-shrink: 0;
-          margin-top: 2px;
-          color: #856404 !important;
-        }
-        .pm-modal-obligatoire {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          background: #dc3545 !important;
-          color: #ffffff !important;
-          padding: 2px 8px;
-          border-radius: 4px;
-          font-size: 10px;
-          font-weight: 700;
-          margin-left: 8px;
-        }
-        .pm-modal-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-          gap: 16px;
-        }
-        .pm-modal-field {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-        .pm-modal-field label {
-          font-size: 12px;
-          font-weight: 600;
-          color: #374151 !important;
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
-        }
-        .pm-modal-field input,
-        .pm-modal-field select {
-          padding: 10px 12px;
-          border: 1px solid #d1d5db !important;
-          border-radius: 8px;
-          font-size: 14px;
-          color: #1a1a2e !important;
-          background: #ffffff !important;
-          transition: all 0.2s;
-        }
-        .pm-modal-field input::placeholder {
-          color: #9ca3af !important;
-        }
-        .pm-modal-field input:focus,
-        .pm-modal-field select:focus {
-          outline: none;
-          border-color: #3498db !important;
-          box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.15);
-        }
-        .pm-modal-footer {
-          display: flex;
-          justify-content: flex-end;
-          gap: 10px;
-          padding: 16px 24px;
-          background: #f8f9fa !important;
-          border-top: 1px solid #e5e7eb;
-          border-radius: 0 0 16px 16px;
-          position: sticky;
-          bottom: 0;
-        }
-        .pm-modal-btn-cancel,
-        .pm-modal-btn-save {
-          padding: 10px 20px;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          border: none;
-          transition: all 0.2s;
-        }
-        .pm-modal-btn-cancel {
-          background: #e5e7eb !important;
-          color: #374151 !important;
-        }
-        .pm-modal-btn-cancel:hover {
-          background: #d1d5db !important;
-        }
-        .pm-modal-btn-save {
-          background: #3498db !important;
-          color: #ffffff !important;
-        }
-        .pm-modal-btn-save:hover {
-          background: #2980b9 !important;
-        }
-        .pm-modal-btn-save:disabled {
-          background: #93c5fd !important;
-          cursor: not-allowed;
-        }
-      `}</style>
-
       <MiniSidebar />
       <div className="paiement-mensuel-container">
         <div className="pm-header">
@@ -1574,7 +1496,7 @@ const PaiementMensuel = () => {
                       {t('Factures séparées', 'Faktiora misaraka', 'Separate invoices')}
                     </span>
                     <span className="pm-type-option-badge">
-                      {t('Une facture par mois - Même quittance', 'Faktiora isam-bolana - Taratasy iray', 'One invoice per month - Same receipt')}
+                      {t('Une facture par mois - Même numéro + suffixe A-L', 'Faktiora isam-bolana - Laharana iray + tovana A-L', 'One invoice per month - Same number + suffix A-L')}
                     </span>
                   </div>
                 </label>
@@ -1593,14 +1515,6 @@ const PaiementMensuel = () => {
                       setTimeout(() => {
                         setEditedUsager({ ...usager });
                         setShowEditModal(true);
-                        showToast(
-                          t(
-                            "⚠️ Type C : Veuillez confirmer les informations de l'usager pour continuer",
-                            "⚠️ Karazana C : Hamarino ny mombamomba ny mpampiasa hanohizana",
-                            '⚠️ Type C: Please confirm user information to continue'
-                          ),
-                          'warning'
-                        );
                       }, 300);
                     }}
                   />
@@ -1615,6 +1529,41 @@ const PaiementMensuel = () => {
                   </div>
                 </label>
               </div>
+            </div>
+          </div>
+
+          <div className="pm-section pm-type-dafc-section">
+            <h3><Hash size={18} /> {t('Type de facture (DAFC/SFL)', 'Karazana faktiora (DAFC/SFL)', 'Invoice type (DAFC/SFL)')}</h3>
+            <div className="pm-type-dafc-container">
+              <label className={`pm-type-dafc-option ${typeFactureDAFC === 'DAFC' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  value="DAFC"
+                  checked={typeFactureDAFC === 'DAFC'}
+                  onChange={() => setTypeFactureDAFC('DAFC')}
+                />
+                <div className="pm-type-dafc-content">
+                  <span className="pm-type-dafc-title">DAFC</span>
+                  <span className="pm-type-dafc-desc">
+                    {t('Droit d\'auteur et frais connexes', 'Zon\'ny mpanoratra sy sara mifandraika', 'Copyright and related fees')}
+                  </span>
+                </div>
+              </label>
+
+              <label className={`pm-type-dafc-option ${typeFactureDAFC === 'SFL' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  value="SFL"
+                  checked={typeFactureDAFC === 'SFL'}
+                  onChange={() => setTypeFactureDAFC('SFL')}
+                />
+                <div className="pm-type-dafc-content">
+                  <span className="pm-type-dafc-title">SFL</span>
+                  <span className="pm-type-dafc-desc">
+                    {t('Sans frais de licence', 'Tsy misy saran\'ny fahazoan-dalana', 'Without license fees')}
+                  </span>
+                </div>
+              </label>
             </div>
           </div>
 
@@ -1651,15 +1600,20 @@ const PaiementMensuel = () => {
               </div>
 
               <div className="pm-form-group">
-                <label><DollarSign size={15} /> {t('Montant mensuel (Ar)', 'Vola isam-bolana (Ar)', 'Monthly amount (Ar)')}</label>
+                <label>
+                  <DollarSign size={15} /> {t('Montant mensuel (Ar)', 'Vola isam-bolana (Ar)', 'Monthly amount (Ar)')}{' '}
+                  <span className="pm-required-star">*</span>
+                </label>
                 <input
                   type="number"
                   value={montantMensuel}
                   onChange={(e) => setMontantMensuel(e.target.value)}
+                  onWheel={handleMontantWheel}
                   placeholder={t('Saisir le montant mensuel', 'Ampidiro ny vola isam-bolana', 'Enter monthly amount')}
                   step="1"
                   min="0"
-                  className="pm-montant-input"
+                  className={`pm-montant-input pm-no-spinner ${!montantMensuelValide ? 'pm-input-incomplete' : ''}`}
+                  required
                 />
               </div>
 
@@ -1669,9 +1623,10 @@ const PaiementMensuel = () => {
                   type="number"
                   value={uniter}
                   onChange={(e) => setUniter(parseInt(e.target.value) || 1)}
+                  onWheel={handleMontantWheel}
                   min="1"
                   step="1"
-                  className="pm-uniter-input"
+                  className="pm-uniter-input pm-no-spinner"
                 />
                 <small className="pm-field-hint">
                   {t('Multiplicateur du montant mensuel', 'Fampitomboana ny vola isam-bolana', 'Monthly amount multiplier')}
@@ -1684,7 +1639,7 @@ const PaiementMensuel = () => {
                     <RefreshCw size={15} />
                     <span>
                       {t('Frais de renouvellement Contrat (Ar)', 'Saran\'ny fanavaozana fifanarahana (Ar)', 'Contract renewal fees (Ar)')}{' '}
-                      <span style={{ color: 'red' }}>*</span>
+                      <span className="pm-required-star">*</span>
                     </span>
                   </label>
                   <input
@@ -1694,27 +1649,19 @@ const PaiementMensuel = () => {
                       const val = e.target.value;
                       setFraisRenouvellement(val === '' ? '' : (parseFloat(val) || 0));
                     }}
+                    onWheel={handleMontantWheel}
                     placeholder={t(
-                      'Saisir les frais de renouvellement (obligatoire)',
-                      'Ampidiro ny saran\'ny fanavaozana (tsy azo ihodivirana)',
-                      'Enter renewal fees (mandatory)'
+                      'Saisir les frais de renouvellement',
+                      'Ampidiro ny saran\'ny fanavaozana',
+                      'Enter renewal fees'
                     )}
-                    className={`pm-frais-renouvellement-input ${
-                      (!fraisRenouvellement || parseFloat(fraisRenouvellement) <= 0) ? 'pm-input-error' : 'pm-input-valid'
+                    className={`pm-frais-renouvellement-input pm-no-spinner ${
+                      (!fraisRenouvellement || parseFloat(fraisRenouvellement) <= 0) ? 'pm-input-incomplete' : ''
                     }`}
                     step="1"
                     min="0"
                     required
                   />
-                  {(!fraisRenouvellement || parseFloat(fraisRenouvellement) <= 0) ? (
-                    <small className="pm-field-hint pm-renouvellement-hint pm-hint-error">
-                      <AlertCircle size={12} /> <strong>{t('⚠️ OBLIGATOIRE', '⚠️ TSY AZO IHODIVIRANA', '⚠️ MANDATORY')}</strong> - {t('Saisissez les frais de renouvellement de contrat', 'Ampidiro ny saran\'ny fanavaozana fifanarahana', 'Enter contract renewal fees')}
-                    </small>
-                  ) : (
-                    <small className="pm-field-hint pm-renouvellement-hint pm-hint-valid">
-                      <CheckCircle size={12} /> {t('Frais de renouvellement de contrat', 'Saran\'ny fanavaozana fifanarahana', 'Contract renewal fees')} : {parseFloat(fraisRenouvellement).toLocaleString(locale)} Ar
-                    </small>
-                  )}
                 </div>
               )}
 
@@ -1735,8 +1682,9 @@ const PaiementMensuel = () => {
                     type="number"
                     value={montantRetard}
                     onChange={(e) => setMontantRetard(parseFloat(e.target.value) || 0)}
+                    onWheel={handleMontantWheel}
                     placeholder={t('Montant du retard', 'Vola tara', 'Late amount')}
-                    className="pm-retard-input"
+                    className="pm-retard-input pm-no-spinner"
                     step="1"
                     min="0"
                   />
@@ -1834,9 +1782,10 @@ const PaiementMensuel = () => {
                     type="number"
                     value={nombreMois}
                     onChange={handleNombreMoisChange}
+                    onWheel={handleMontantWheel}
                     min="1"
                     max={maxMoisDisponibles || 1}
-                    className="pm-mois-selecteur-input-number"
+                    className="pm-mois-selecteur-input-number pm-no-spinner"
                   />
                   <button
                     className="pm-mois-selecteur-btn"
@@ -1922,39 +1871,188 @@ const PaiementMensuel = () => {
           </div>
 
           <div className="pm-section pm-quittance-section">
-            <h3><FileCheck size={18} /> {t('Quittance', 'Taratasy', 'Receipt')}</h3>
-            <div className="pm-quittance-container">
-              <div className="pm-quittance-input-group">
-                <input
-                  type="text"
-                  value={quittance}
-                  onChange={(e) => setQuittance(getOnlyNumbers(e.target.value))}
-                  placeholder={t('Numéro de quittance', 'Laharana taratasy', 'Receipt number')}
-                  className="pm-quittance-input"
-                />
-                <label className="pm-quittance-checkbox">
+            <h3>
+              <FileCheck size={18} /> {t('Quittance', 'Taratasy', 'Receipt')}{' '}
+              <span style={{ color: 'red', fontSize: '14px' }}>*</span>
+            </h3>
+            <div className="quittance-container">
+              <div className="quittance-input-group">
+                <div
+                  className="quittance-input-wrapper"
+                  ref={menuRef}
+                  style={{ display: 'flex', gap: '4px', alignItems: 'stretch', position: 'relative', width: '100%' }}
+                >
+                  <input
+                    type="text"
+                    value={quittance}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '');
+                      setQuittance(value);
+                      if (quittanceValidee) setQuittanceValidee(false);
+                    }}
+                    placeholder="0000001"
+                    className="quittance-input"
+                    inputMode="numeric"
+                    style={{
+                      flex: 1,
+                      borderColor: quittance && quittance !== '' ? '#27ae60' : '#ddd',
+                      borderWidth: quittance && quittance !== '' ? '2px' : '1px',
+                      fontFamily: 'monospace',
+                      letterSpacing: '2px',
+                      fontSize: '16px',
+                      textAlign: 'center',
+                    }}
+                  />
+
+                  <button
+                    type="button"
+                    className="btn-quittance-menu"
+                    onClick={() => setShowQuittanceMenu(!showQuittanceMenu)}
+                    title={t('Actions', 'Hetsika', 'Actions')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '42px',
+                      height: '42px',
+                      backgroundColor: showQuittanceMenu ? '#2c7be5' : '#f1f5f9',
+                      color: showQuittanceMenu ? '#ffffff' : '#475569',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {isSavingQuittance ? (
+                      <Loader2 size={18} className="spinner" />
+                    ) : (
+                      <MoreVertical size={18} />
+                    )}
+                  </button>
+
+                  {showQuittanceMenu && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '46px',
+                        right: 0,
+                        background: '#ffffff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                        zIndex: 1000,
+                        minWidth: '240px',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={handleEnregistrerQuittance}
+                        disabled={isSavingQuittance || !quittance || quittance.trim() === ''}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          width: '100%',
+                          padding: '12px 16px',
+                          background: 'transparent',
+                          border: 'none',
+                          borderBottom: '1px solid #f1f5f9',
+                          cursor:
+                            isSavingQuittance || !quittance || quittance.trim() === ''
+                              ? 'not-allowed'
+                              : 'pointer',
+                          color: '#1e40af',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          textAlign: 'left',
+                          opacity:
+                            isSavingQuittance || !quittance || quittance.trim() === ''
+                              ? 0.5
+                              : 1,
+                          transition: 'background 0.15s',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = '#eff6ff'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <RefreshCw size={16} />
+                        <span>
+                          {t('Enregistrer la quittance', 'Tehirizo ny taratasy', 'Save receipt')}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleVoirReference}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          width: '100%',
+                          padding: '12px 16px',
+                          background: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: '#334155',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          textAlign: 'left',
+                          transition: 'background 0.15s',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = '#f8fafc'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <Eye size={16} />
+                        <span>
+                          {t('Voir la référence actuelle', 'Hijery ny références', 'View current reference')}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="quittance-validation">
+                <label className="quittance-checkbox-label">
                   <input
                     type="checkbox"
                     checked={quittanceValidee}
                     onChange={(e) => {
-                      if (!quittance) {
-                        showToast(t('Veuillez saisir un numéro de quittance', 'Ampidiro ny laharana taratasy', 'Please enter a receipt number'), 'error');
+                      if (!quittance || quittance === '') {
+                        showToast(
+                          t('⚠️ Saisissez d\'abord un numéro', '⚠️ Ampidiro aloha', '⚠️ Enter a number first'),
+                          'error'
+                        );
                         return;
                       }
                       setQuittanceValidee(e.target.checked);
                     }}
+                    className="quittance-checkbox"
+                    disabled={!quittance || quittance === ''}
                   />
-                  {t('Valider la quittance', 'Hamarino ny taratasy', 'Validate receipt')}
-                </label>
-              </div>
-              {quittance && quittanceValidee && (
-                <div className="pm-quittance-validee">
-                  <CheckCircle size={16} color="#27ae60" />
                   <span>
-                    {t('Quittance validée', 'Voamarina ny taratasy', 'Receipt validated')} : <strong>{quittance}</strong>
+                    {t('Je confirme le numéro de quittance', 'Hamarino ny laharana', 'I confirm the receipt number')}{' '}
+                    : <strong>{quittance || '...'}</strong>
                   </span>
-                </div>
-              )}
+                </label>
+
+                {quittanceValidee && quittance && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', marginTop: '4px', fontSize: '13px', color: '#2e7d32', backgroundColor: '#e8f5e9', borderRadius: '4px' }}>
+                    <CheckCircle size={16} color="#27ae60" />
+                    <span>✅ {t('Quittance validée', 'Voamarina', 'Receipt validated')}</span>
+                  </div>
+                )}
+                {!quittanceValidee && quittance && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', marginTop: '4px', fontSize: '13px', color: '#e65100', backgroundColor: '#fff3e0', borderRadius: '4px' }}>
+                    <AlertCircle size={16} color="#f39c12" />
+                    <span>
+                      <strong>☑️ {t('OBLIGATOIRE', 'TSY AZO IHODIVIRANA', 'MANDATORY')}</strong> -{' '}
+                      {t('Cochez la case', 'Tsindrio ny boaty', 'Check the box')}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1963,6 +2061,7 @@ const PaiementMensuel = () => {
             onClick={genererFactures}
             disabled={
               isSubmitting ||
+              !montantMensuelValide ||
               !personneRecu.trim() ||
               !quittance ||
               !quittanceValidee ||
@@ -1977,12 +2076,9 @@ const PaiementMensuel = () => {
             )}
           </button>
 
-          {factureType === 'C' && !fraisRenouvValide && (
-            <div className="pm-generate-warning">
-              <AlertCircle size={16} />
-              <span>
-                ⚠️ {t('Frais de renouvellement de contrat obligatoire pour générer la facture', 'Tsy azo ihodivirana ny saran\'ny fanavaozana fifanarahana hamoronana faktiora', 'Contract renewal fees required to generate invoice')}
-              </span>
+          {!montantMensuelValide && (
+            <div className="pm-generate-simple-warning">
+              ⚠️ {t('Le montant mensuel est obligatoire pour générer la facture', 'Tsy azo ihodivirana ny vola isam-bolana hamoronana faktiora', 'Monthly amount is required to generate the invoice')}
             </div>
           )}
         </div>
@@ -2052,15 +2148,181 @@ const PaiementMensuel = () => {
                 })}
               </div>
             )}
+
+            <button
+              type="button"
+              className="pm-btn-retour-gere-payer-bas"
+              onClick={() => navigate('/gere-payer')}
+            >
+              <ArrowLeft size={18} /> {t('Retour vers Gere-Payer', 'Hiverina any amin\'ny Gere-Payer', 'Back to Gere-Payer')}
+            </button>
           </div>
         )}
-
-        <div className="pm-footer">
-          <button className="pm-btn-print" onClick={() => window.print()}>
-            <Printer size={18} /> {t('Imprimer', 'Atonta', 'Print')}
-          </button>
-        </div>
       </div>
+
+      {showReferenceModal && referenceInfo && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+            padding: '20px',
+          }}
+          onClick={() => setShowReferenceModal(false)}
+        >
+          <div
+            style={{
+              background: '#FFFFFF',
+              color: '#000000',
+              borderRadius: '12px',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.3)',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: '18px 22px',
+                borderBottom: '1px solid #BAE6FD',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#FFFFFF',
+              }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: '17px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  color: '#000000',
+                  fontWeight: '700',
+                }}
+              >
+                <FileCheck size={18} color="#000000" />
+                <span>{t('Référence Quittance', 'Référence taratasy', 'Receipt reference')}</span>
+              </h3>
+              <button
+                onClick={() => setShowReferenceModal(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  color: '#000000',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={20} color="#000000" />
+              </button>
+            </div>
+
+            <div style={{ padding: '22px', background: '#FFFFFF' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div
+                  style={{
+                    padding: '18px',
+                    background: '#FFFFFF',
+                    borderRadius: '10px',
+                    border: '2px solid #BAE6FD',
+                    textAlign: 'center',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '12px',
+                      color: '#000000',
+                      marginBottom: '6px',
+                      fontWeight: '700',
+                      letterSpacing: '0.5px',
+                    }}
+                  >
+                    {t('PROCHAIN NUMÉRO', 'LAHARANA MANARAKA', 'NEXT NUMBER')}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '32px',
+                      fontWeight: 'bold',
+                      color: '#000000',
+                      fontFamily: 'monospace',
+                      letterSpacing: '3px',
+                    }}
+                  >
+                    {referenceInfo.prochainNumero}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    padding: '12px',
+                    background: '#FFFFFF',
+                    borderRadius: '8px',
+                    border: '1px solid #BAE6FD',
+                    textAlign: 'center',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      color: '#000000',
+                      marginBottom: '2px',
+                      fontWeight: '700',
+                    }}
+                  >
+                    {t('DERNIER NUMÉRO', 'LAHARANA FARANY', 'LAST NUMBER')}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '20px',
+                      fontWeight: 'bold',
+                      color: '#000000',
+                      fontFamily: 'monospace',
+                    }}
+                  >
+                    {referenceInfo.dernierNumeroFormate}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: '14px 22px',
+                background: '#FFFFFF',
+                borderTop: '1px solid #BAE6FD',
+                display: 'flex',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <button
+                onClick={() => setShowReferenceModal(false)}
+                style={{
+                  padding: '10px 20px',
+                  background: '#FFFFFF',
+                  color: '#000000',
+                  border: '2px solid #BAE6FD',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+              >
+                {t('Fermer', 'Hidio', 'Close')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showEditModal && (
         <div className="pm-modal-overlay">
@@ -2080,22 +2342,20 @@ const PaiementMensuel = () => {
             </div>
 
             <div className="pm-modal-body">
-              {factureType === 'C' && (
-                <div className="pm-modal-info-renouvellement">
-                  <AlertTriangle size={16} />
-                  <span>
-                    {t(
-                      "Renouvellement de contrat : vous devez confirmer les informations de l'usager pour continuer.",
-                      "Fanavaozana fifanarahana : tsy maintsy manamarina ny mombamomba ny mpampiasa ianao hanohizana.",
-                      'Contract renewal: you must confirm user information to continue.'
-                    )}
-                  </span>
-                </div>
-              )}
-
               <div className="pm-modal-grid">
                 <div className="pm-modal-field">
-                  <label>{t('Dénomination', 'Anarana', 'Name')} <span style={{ color: 'red' }}>*</span></label>
+                  <label>{t('Type de facture', 'Karazana faktiora', 'Invoice type')}</label>
+                  <select
+                    value={typeFactureDAFC}
+                    onChange={(e) => setTypeFactureDAFC(e.target.value)}
+                  >
+                    <option value="DAFC">DAFC</option>
+                    <option value="SFL">SFL</option>
+                  </select>
+                </div>
+
+                <div className="pm-modal-field">
+                  <label>{t('Dénomination', 'Anarana', 'Name')} <span className="pm-required-star">*</span></label>
                   <input
                     type="text"
                     value={editedUsager.denomination || editedUsager.nom_evenement || editedUsager.genre_manifestation || ''}

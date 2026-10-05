@@ -1,0 +1,1061 @@
+/* src/styles/comptet.css */
+
+/* ============================================================
+   PALETTE SIMPLIFIÉE — Bleu discret + gris/neutres
+   ============================================================ */
+   :root {
+    --primary: #3b7dd8;
+    --primary-dark: #2c5fa8;
+    --primary-light: #eaf2fb;
+    --primary-border: #cfe0f5;
+  
+    --text: #1f2937;
+    --text-muted: #6b7280;
+    --bg: #f7f9fc;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --radius: 8px;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-hover: 0 3px 10px rgba(0, 0, 0, 0.08);
+  }
+  
+  /* ============================================================
+     CONTENEUR
+     ============================================================ */
+  .compte-container {
+    margin-left: 70px;
+    padding: 22px 26px 60px;
+    min-height: 100vh;
+    background: var(--bg);
+    font-family: 'Segoe UI', 'Inter', sans-serif;
+    color: var(--text);
+  }
+  
+  /* ============================================================
+     EN-TÊTE — bleu discret
+     ============================================================ */
+  .compte-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+    padding: 18px 22px;
+    background: var(--primary);
+    color: #fff;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  
+  .compte-header-left h1 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 5px;
+    font-size: 21px;
+    font-weight: 600;
+  }
+  
+  .compte-subtitle {
+    margin: 0;
+    font-size: 13px;
+    opacity: 0.9;
+    line-height: 1.4;
+  }
+  
+  .compte-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .btn-backs,
+  .btn-pdf-export,
+  .btn-refresh-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 13px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    transition: all 0.15s ease;
+  }
+  
+  .btn-backs,
+  .btn-refresh-icon {
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+  }
+  .btn-backs:hover,
+  .btn-refresh-icon:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+  .btn-refresh-icon {
+    padding: 8px;
+  }
+  .btn-refresh-icon:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  
+  .btn-pdf-export {
+    background: #fff;
+    color: var(--primary-dark);
+  }
+  .btn-pdf-export:hover {
+    background: rgba(255, 255, 255, 0.705);
+  }
+  .btn-pdf-export:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  
+  /* ============================================================
+     STATS GLOBALES — toutes identiques
+     ============================================================ */
+  .compte-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  
+  .compte-stat-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 18px;
+    background: var(--card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    transition: box-shadow 0.15s ease;
+  }
+  
+  .compte-stat-card:hover {
+    box-shadow: var(--shadow-hover);
+  }
+  
+  /* Toutes les cartes partagent la même couleur (fin des variantes) */
+  .compte-stat-card.blue,
+  .compte-stat-card.green,
+  .compte-stat-card.orange,
+  .compte-stat-card.purple {
+    border-left: 4px solid var(--primary);
+  }
+  
+  .stat-card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    background: var(--primary-light);
+    color: var(--primary);
+    flex-shrink: 0;
+  }
+  
+  .stat-card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  
+  .stat-card-label {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  
+  .stat-card-value {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  /* ============================================================
+     FILTRES
+     ============================================================ */
+  .compte-filters {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+    padding: 12px 16px;
+    background: var(--card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+  
+  .filter-select {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 200px;
+    color: var(--primary);
+  }
+  
+  .filter-select select {
+    flex: 1;
+    padding: 8px 11px;
+    border-radius: 6px;
+    border: 1px solid var(--primary-border);
+    background: #fff;
+    font-size: 13px;
+    color: var(--text);
+    font-family: inherit;
+    cursor: pointer;
+  }
+  
+  .filter-select select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 125, 216, 0.12);
+  }
+  
+  /* ============================================================
+     SECTIONS PAR TYPE
+     ============================================================ */
+  .compte-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  
+  .compte-section-type {
+    background: var(--card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  
+  .type-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+    background: var(--primary-light);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  
+  .type-section-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  
+  .type-section-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    background: #fff !important;
+    color: var(--primary) !important;
+    border: 1px solid var(--primary-border);
+    flex-shrink: 0;
+  }
+  
+  .type-section-title h2 {
+    margin: 0 0 2px;
+    font-size: 15.5px;
+    font-weight: 600;
+    color: var(--primary-dark) !important;
+    letter-spacing: 0.2px;
+  }
+  
+  .type-section-count {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  
+  .type-section-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .btn-detail,
+  .btn-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 11px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 500;
+    font-family: inherit;
+    transition: all 0.15s ease;
+  }
+  
+  .btn-detail {
+    background: var(--primary);
+    color: #fff;
+  }
+  .btn-detail:hover {
+    background: var(--primary-dark);
+  }
+  
+  .btn-toggle {
+    background: #fff;
+    color: var(--primary-dark);
+    border: 1px solid var(--primary-border);
+    padding: 7px;
+  }
+  .btn-toggle:hover {
+    background: var(--primary-light);
+  }
+  
+  /* ============================================================
+     TOTAUX PAR TYPE
+     ============================================================ */
+  .type-section-totals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    background: #fbfcfe;
+  }
+  
+  .total-box {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 9px 12px;
+    background: #fff;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  
+  .total-box-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  
+  .total-box-value {
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--primary-dark) !important;
+  }
+  .total-box-value.green {
+    color: var(--primary) !important;
+  }
+  
+  /* ============================================================
+     TABLEAU
+     ============================================================ */
+  .type-section-body {
+    padding: 0;
+  }
+  
+  .table-scroll {
+    overflow-x: auto;
+  }
+  
+  .compte-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+  
+  .compte-table thead {
+    background: #f3f4f6;
+    color: var(--text);
+  }
+  
+  .compte-table th {
+    padding: 10px 11px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+  
+  .compte-table td {
+    padding: 9px 11px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  
+  .compte-table tbody tr:hover {
+    background: #f9fafb;
+  }
+  
+  .compte-table .num-col {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .compte-table .num-col.strong {
+    font-weight: 600;
+    color: var(--primary-dark);
+  }
+  .compte-table .num-col.green {
+    color: var(--primary) !important;
+    font-weight: 600;
+  }
+  .compte-table .center {
+    text-align: center;
+  }
+  
+  .compte-table tfoot {
+    background: #f3f4f6;
+    font-weight: 600;
+  }
+  
+  .compte-table tfoot td {
+    padding: 11px;
+    border-top: 2px solid var(--border);
+    color: var(--text);
+    font-size: 12.5px;
+  }
+  
+  .total-label {
+    text-align: right;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  
+  .region-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    background: #f3f4f6;
+    color: var(--text);
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  
+  /* ============================================================
+     RÉCAPITULATION GÉNÉRALE (bas de page)
+     ============================================================ */
+  .compte-recap-final {
+    margin-top: 24px;
+    background: var(--card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  
+  .compte-recap-final h2 {
+    margin: 0;
+    padding: 14px 18px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--primary-dark);
+    background: var(--primary-light);
+    border-bottom: 1px solid var(--border);
+    letter-spacing: 0.3px;
+  }
+  
+  .compte-recap-final table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  
+  .compte-recap-final thead {
+    background: #f3f4f6;
+  }
+  
+  .compte-recap-final th {
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12.5px;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+  
+  .compte-recap-final td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .compte-recap-final tbody tr:hover {
+    background: #f9fafb;
+  }
+  
+  .compte-recap-final .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  
+  .compte-recap-final tfoot {
+    background: var(--primary-light);
+    font-weight: 700;
+  }
+  
+  .compte-recap-final tfoot td {
+    padding: 12px;
+    border-top: 2px solid var(--primary);
+    color: var(--primary-dark);
+    font-size: 13.5px;
+  }
+  
+  .compte-recap-final .label-col {
+    font-weight: 600;
+    color: var(--primary-dark);
+  }
+  
+  /* ============================================================
+     ÉTATS
+     ============================================================ */
+  .compte-loading,
+  .compte-empty,
+  .compte-empty-small {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 50px 20px;
+    color: var(--primary);
+    text-align: center;
+  }
+  
+  .compte-empty-small {
+    padding: 26px 20px;
+  }
+  
+  .compte-loading p,
+  .compte-empty p,
+  .compte-empty-small p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--text-muted);
+  }
+  
+  .compte-error {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    color: #b91c1c;
+    margin-bottom: 18px;
+    font-size: 13px;
+  }
+  
+  .compte-error button {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 11px;
+    background: #dc2626;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: inherit;
+  }
+  .compte-error button:hover {
+    background: #b91c1c;
+  }
+  
+  /* ============================================================
+     SPINNER
+     ============================================================ */
+  .spinning {
+    animation: spin 1s linear infinite;
+  }
+  
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  /* ============================================================
+   ✅ BOUTON ŒIL DANS LE TABLEAU
+   ============================================================ */
+.btn-eye-detail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--primary-border);
+  background: var(--primary-lighter);
+  color: var(--primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-eye-detail:hover {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  transform: scale(1.05);
+}
+
+.btn-eye-detail:active {
+  transform: scale(0.95);
+}
+
+/* ============================================================
+   ✅ MODALE DÉTAIL USAGER
+   ============================================================ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 20px;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.usager-detail-modal {
+  background: #fff;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 900px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.usager-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px 22px;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 12px 12px 0 0;
+}
+
+.usager-detail-header h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.usager-detail-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.usager-detail-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.usager-detail-close:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.usager-detail-body {
+  padding: 22px;
+}
+
+/* Grille infos */
+.usager-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.usager-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--primary-lighter);
+  border: 1px solid var(--primary-border);
+  border-radius: 8px;
+}
+
+.usager-info-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.usager-info-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* Totaux */
+.usager-totaux-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.usager-total-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 8px;
+}
+
+.usager-total-box.primary {
+  background: var(--primary);
+  border-left-color: var(--primary-dark);
+}
+
+.usager-total-box.primary .usager-total-label {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.usager-total-box.primary .usager-total-value {
+  color: #fff;
+}
+
+.usager-total-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.usager-total-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--primary-dark);
+}
+
+/* Section paiements */
+.usager-paiements-section h4 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.usager-paiements-loading,
+.usager-paiements-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 30px 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+  background: var(--primary-lighter);
+  border-radius: 8px;
+  border: 1px dashed var(--primary-border);
+}
+
+.usager-paiements-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.usager-paiements-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.usager-paiements-table thead {
+  background: var(--primary-lighter);
+}
+
+.usager-paiements-table th {
+  padding: 10px 11px;
+  text-align: left;
+  font-weight: 700;
+  font-size: 11.5px;
+  color: var(--primary-dark);
+  border-bottom: 1px solid var(--primary-border);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.usager-paiements-table td {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.usager-paiements-table tbody tr:hover {
+  background: var(--primary-lighter);
+}
+
+.usager-paiements-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.usager-paiements-table .small {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.paiement-type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.paiement-type-badge.unique {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+}
+
+.paiement-type-badge.mensuel {
+  background: var(--primary-lighter);
+  color: var(--primary);
+  border: 1px solid var(--primary-border);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .usager-detail-modal {
+    max-height: 95vh;
+  }
+  .usager-detail-body {
+    padding: 16px;
+  }
+  .usager-info-grid,
+  .usager-totaux-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================ */
+/* ✅ RETARDS - Styles ajoutés                                  */
+/* ============================================================ */
+
+/* Carte "Total retards" */
+.compte-stat-card.stat-card-danger {
+  background: linear-gradient(135deg, #fff5f5 0%, #ffe5e5 100%);
+  border: 1px solid rgba(220, 53, 69, 0.2);
+}
+
+.compte-stat-card.stat-card-danger .stat-card-icon {
+  background: rgba(220, 53, 69, 0.12);
+  color: #dc3545;
+}
+
+.compte-stat-card.stat-card-danger .stat-card-value {
+  color: #dc3545;
+}
+
+/* Boîte "Retard" dans les totaux de section */
+.total-box.total-box-danger {
+  background: #fff5f5;
+  border: 1px solid rgba(220, 53, 69, 0.15);
+}
+
+.total-box.total-box-danger .total-box-label {
+  color: #dc3545;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.total-box-value.red {
+  color: #dc3545 !important;
+}
+
+/* Badge retard dans les tables */
+.retard-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(220, 53, 69, 0.1);
+  color: #dc3545;
+  border: 1px solid rgba(220, 53, 69, 0.2);
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.retard-badge-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(255, 193, 7, 0.15);
+  color: #b8860b;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.no-retard {
+  color: #b0b8c1;
+  font-size: 13px;
+}
+
+/* Boîte "Retard" dans la modale usager */
+.usager-total-box.danger {
+  background: linear-gradient(135deg, #fff5f5, #ffe5e5);
+  border: 1px solid rgba(220, 53, 69, 0.2);
+}
+
+.usager-total-box.danger .usager-total-label {
+  color: #dc3545;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.usager-total-box.danger .usager-total-value {
+  color: #dc3545;
+}
+
+/* Alerte retard dans la modale */
+.usager-retard-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  margin: 16px 0;
+  background: linear-gradient(135deg, #fff5f5, #ffe5e5);
+  border-left: 4px solid #dc3545;
+  border-radius: 8px;
+  color: #721c24;
+}
+
+.usager-retard-alert svg {
+  color: #dc3545;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.usager-retard-alert strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #dc3545;
+  font-size: 14px;
+}
+
+.usager-retard-alert p {
+  margin: 0;
+  font-size: 13px;
+  color: #721c24;
+}
+
+/* Ligne total retard dans le tableau paiements */
+.usager-paiements-total-retard {
+  background: #fff5f5;
+  border-top: 2px solid rgba(220, 53, 69, 0.2);
+}
+
+.usager-paiements-total-retard .total-label {
+  font-weight: 700;
+  color: #dc3545;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+  /* ============================================================
+     RESPONSIVE
+     ============================================================ */
+  @media (max-width: 768px) {
+    .compte-container {
+      margin-left: 0;
+      padding: 14px 12px 50px;
+    }
+    .compte-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .compte-header-right {
+      justify-content: flex-end;
+    }
+    .compte-stats-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+    .type-section-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .compte-table th,
+    .compte-table td {
+      padding: 7px 8px;
+      font-size: 11.5px;
+    }
+  }

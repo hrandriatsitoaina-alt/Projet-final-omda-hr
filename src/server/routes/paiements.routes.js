@@ -1,7 +1,7 @@
 // server/routes/paiements.routes.js
 const express = require('express');
 const router = express.Router();
-const pool = require('../database');
+const { query } = require('../database');
 
 // ============================================================
 // GET - Paiements d'un usager
@@ -11,7 +11,7 @@ router.get('/paiements/usager/:id/:type', async (req, res) => {
     const { id, type } = req.params;
     console.log(`📊 Récupération des paiements pour usager ${id} (${type})`);
 
-    const result = await pool.query(
+    const result = await query(
       `SELECT * FROM omda_app.paiements 
        WHERE usager_id = $1 AND usager_type = $2 AND statut = 'paye'
        ORDER BY annee DESC, mois DESC`,
@@ -37,7 +37,7 @@ router.get('/paiements/usager/:id/:type', async (req, res) => {
 // ============================================================
 router.post('/paiements/enregistrer', async (req, res) => {
   console.log('🔥 ROUTE /paiements/enregistrer appelée');
-  console.log('📦 Body reçu:', req.body);
+  console.log('📦 Body reçu:', JSON.stringify(req.body, null, 2));
 
   const {
     usagerId,
@@ -56,26 +56,264 @@ router.post('/paiements/enregistrer', async (req, res) => {
     statut
   } = req.body;
 
+  // ─── Validations de base ───
   if (!usagerId || !montant) {
-    return res.status(400).json({ success: false, message: 'usagerId et montant requis' });
+    console.warn('⚠️ usagerId ou montant manquant');
+    return res.status(400).json({
+      success: false,
+      message: 'usagerId et montant requis'
+    });
   }
 
   try {
     const typePaiement = type_paiement || (usagerType === 'occ' ? 'unique' : 'mensuel');
-    console.log(`📝 Type paiement: ${typePaiement}, usagerType: ${usagerType}`);
+    console.log(`📝 typePaiement=${typePaiement}, usagerType=${usagerType}`);
 
-    if (usagerType === 'occ' || typePaiement === 'unique') {
-      const result = await pool.query(
+    // ═══════════════════════════════════════════════════════
+    // ⭐ CAS SPÉCIAL : OTHER — 1 SEULE LIGNE (INSERT ou UPDATE)
+    // ═══════════════════════════════════════════════════════
+    if (usagerType === 'other') {
+      const datePaiementFinal = date_paiement || new Date().toISOString().split('T')[0];
+      const dateObj = new Date(datePaiementFinal);
+
+      // ─── Paiement UNIQUE pour OTHER ───
+      if (typePaiement === 'unique') {
+        const anneeOther = annee || dateObj.getFullYear();
+        const moisOther = mois || (dateObj.getMonth() + 1);
+
+        const existing = await query(
+          `SELECT id FROM omda_app.paiements 
+           WHERE usager_id = $1 AND usager_type = 'other' 
+           ORDER BY id DESC LIMIT 1`,
+          [usagerId]
+        );
+
+        if (existing.rows.length > 0) {
+          const updateResult = await query(
+            `UPDATE omda_app.paiements SET
+               type_paiement = 'unique',
+               annee = $1,
+               mois = $2,
+               montant = $3,
+               date_paiement = $4,
+               statut = $5,
+               frais_dossier = $6,
+               montant_retard = $7,
+               est_retard = $8,
+               reference = $9,
+               nombre_mois = 1,
+               mois_payes = NULL
+             WHERE id = $10
+             RETURNING id`,
+            [
+              anneeOther,
+              moisOther,
+              montant,
+              datePaiementFinal,
+              statut || 'paye',
+              frais_dossier || 0,
+              montant_retard || 0,
+              est_retard || false,
+              reference || null,
+              existing.rows[0].id
+            ]
+          );
+
+          console.log('✅ Paiement unique OTHER mis à jour, ID:', updateResult.rows[0].id);
+          return res.json({
+            success: true,
+            message: 'Paiement OTHER (unique) mis à jour avec succès',
+            id: updateResult.rows[0].id,
+            updated: true
+          });
+        }
+
+        const insertResult = await query(
+          `INSERT INTO omda_app.paiements 
+           (usager_id, usager_type, type_paiement, annee, mois, montant, date_paiement, statut, 
+            frais_dossier, montant_retard, est_retard, reference, nombre_mois, mois_payes)
+           VALUES ($1, 'other', 'unique', $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, NULL)
+           RETURNING id`,
+          [
+            usagerId,
+            anneeOther,
+            moisOther,
+            montant,
+            datePaiementFinal,
+            statut || 'paye',
+            frais_dossier || 0,
+            montant_retard || 0,
+            est_retard || false,
+            reference || null
+          ]
+        );
+
+        console.log('✅ Paiement unique OTHER enregistré, ID:', insertResult.rows[0].id);
+        return res.json({
+          success: true,
+          message: 'Paiement OTHER (unique) enregistré avec succès',
+          id: insertResult.rows[0].id
+        });
+      }
+
+      // ─── Paiement MENSUEL pour OTHER ───
+      let anneeOther = annee || new Date().getFullYear();
+      let moisList = [];
+
+      if (mois_payes && Array.isArray(mois_payes) && mois_payes.length > 0) {
+        moisList = mois_payes
+          .map(m => parseInt(m, 10))
+          .filter(m => !isNaN(m) && m >= 1 && m <= 12);
+      }
+
+      if (moisList.length === 0) {
+        const moisFallback = mois || (new Date().getMonth() + 1);
+        moisList = [parseInt(moisFallback, 10)];
+      }
+
+      const moisFinal = moisList[0];
+
+      // ✅ CHERCHER une ligne existante AVEC LE MONTANT (pour cumul)
+      const existing = await query(
+        `SELECT id, nombre_mois, mois_payes, montant FROM omda_app.paiements 
+         WHERE usager_id = $1 AND usager_type = 'other'
+         ORDER BY id DESC LIMIT 1`,
+        [usagerId]
+      );
+
+      if (existing.rows.length > 0) {
+        // ═══════════════════════════════════════════════════════════
+        // ✅ CORRECTION BUG n°2 : FUSIONNER les mois au lieu d'écraser
+        // ═══════════════════════════════════════════════════════════
+        let anciensMois = [];
+        try {
+          if (existing.rows[0].mois_payes) {
+            if (Array.isArray(existing.rows[0].mois_payes)) {
+              anciensMois = existing.rows[0].mois_payes;
+            } else if (typeof existing.rows[0].mois_payes === 'string') {
+              const parsed = JSON.parse(existing.rows[0].mois_payes);
+              if (Array.isArray(parsed)) anciensMois = parsed;
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ Erreur parsing anciens mois:', e.message);
+        }
+
+        // ✅ FUSION : anciens + nouveaux (dédupliqués + triés)
+        const moisFusionnes = [...new Set([...anciensMois, ...moisList])]
+          .filter(m => typeof m === 'number' && m >= 1 && m <= 12)
+          .sort((a, b) => a - b);
+
+        const nombreMoisFusionnes = moisFusionnes.length;
+
+        // ✅ CUMUL du montant
+        const ancienMontant = parseFloat(existing.rows[0].montant) || 0;
+        const nouveauMontant = ancienMontant + (parseFloat(montant) || 0);
+
+        console.log(`🔄 FUSION OTHER : anciens=${JSON.stringify(anciensMois)} + nouveaux=${JSON.stringify(moisList)} = ${JSON.stringify(moisFusionnes)}`);
+        console.log(`💰 Montant : ${ancienMontant} + ${montant} = ${nouveauMontant}`);
+
+        const updateResult = await query(
+          `UPDATE omda_app.paiements SET
+             type_paiement = 'mensuel',
+             annee = $1,
+             mois = $2,
+             montant = $3,
+             date_paiement = $4,
+             statut = $5,
+             frais_dossier = $6,
+             montant_retard = $7,
+             est_retard = $8,
+             reference = $9,
+             nombre_mois = $10,
+             mois_payes = $11
+           WHERE id = $12
+           RETURNING id`,
+          [
+            anneeOther,
+            moisFusionnes[0] || moisFinal,
+            nouveauMontant,
+            datePaiementFinal,
+            statut || 'paye',
+            frais_dossier || 0,
+            montant_retard || 0,
+            est_retard || false,
+            reference || null,
+            nombreMoisFusionnes,
+            JSON.stringify(moisFusionnes),
+            existing.rows[0].id
+          ]
+        );
+
+        console.log(`✅ Paiement mensuel OTHER fusionné (${nombreMoisFusionnes} mois au total), ID:`, updateResult.rows[0].id);
+        return res.json({
+          success: true,
+          message: `Paiement OTHER fusionné (${nombreMoisFusionnes} mois au total)`,
+          id: updateResult.rows[0].id,
+          nombre_mois: nombreMoisFusionnes,
+          mois_payes: moisFusionnes,
+          updated: true
+        });
+      }
+
+      // ✅ INSERT (première fois)
+      const nombreMois = nombre_mois || moisList.length;
+      const insertResult = await query(
         `INSERT INTO omda_app.paiements 
-         (usager_id, usager_type, type_paiement, montant, date_paiement, statut, frais_dossier, montant_retard, est_retard, reference, nombre_mois, mois_payes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         (usager_id, usager_type, type_paiement, annee, mois, montant, date_paiement, 
+          statut, frais_dossier, montant_retard, est_retard, reference, nombre_mois, mois_payes)
+         VALUES ($1, 'other', 'mensuel', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING id`,
         [
           usagerId,
-          usagerType || 'hotel',
-          'unique',
+          anneeOther,
+          moisFinal,
           montant,
-          date_paiement || new Date().toISOString().split('T')[0],
+          datePaiementFinal,
+          statut || 'paye',
+          frais_dossier || 0,
+          montant_retard || 0,
+          est_retard || false,
+          reference || null,
+          nombreMois,
+          JSON.stringify(moisList)
+        ]
+      );
+
+      console.log('✅ Paiement mensuel OTHER enregistré (1ère fois), ID:', insertResult.rows[0].id);
+      return res.json({
+        success: true,
+        message: `Paiement OTHER enregistré (${nombreMois} mois)`,
+        id: insertResult.rows[0].id,
+        nombre_mois: nombreMois,
+        mois_payes: moisList
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // CAS 1 : PAIEMENT UNIQUE (OCC et autres)
+    // ═══════════════════════════════════════════════════════
+    if (usagerType === 'occ' || typePaiement === 'unique') {
+      const datePaiementFinal = date_paiement || new Date().toISOString().split('T')[0];
+      const dateObj = new Date(datePaiementFinal);
+
+      const anneeOcc = annee || dateObj.getFullYear();
+      const moisOcc = mois || (dateObj.getMonth() + 1);
+
+      const result = await query(
+        `INSERT INTO omda_app.paiements 
+         (usager_id, usager_type, type_paiement, annee, mois, montant, date_paiement, statut, 
+          frais_dossier, montant_retard, est_retard, reference, nombre_mois, mois_payes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         RETURNING id`,
+        [
+          usagerId,
+          usagerType || 'occ',
+          'unique',
+          anneeOcc,
+          moisOcc,
+          montant,
+          datePaiementFinal,
           statut || 'paye',
           frais_dossier || 0,
           montant_retard || 0,
@@ -86,7 +324,7 @@ router.post('/paiements/enregistrer', async (req, res) => {
         ]
       );
 
-      console.log('✅ Paiement unique enregistré, ID:', result.rows[0].id);
+      console.log('✅ Paiement unique enregistré, ID:', result.rows[0].id, '- annee:', anneeOcc, 'mois:', moisOcc);
       return res.json({
         success: true,
         message: 'Paiement unique enregistré avec succès',
@@ -94,33 +332,50 @@ router.post('/paiements/enregistrer', async (req, res) => {
       });
     }
 
+    // ═══════════════════════════════════════════════════════
+    // CAS 2 : PAIEMENT MENSUEL (hotel, bus, media, etc.)
+    // ═══════════════════════════════════════════════════════
     let anneeFinale = annee || new Date().getFullYear();
-    let moisFinal = mois || new Date().getMonth() + 1;
     let moisList = [];
 
     if (mois_payes && Array.isArray(mois_payes) && mois_payes.length > 0) {
-      moisList = mois_payes;
-      moisFinal = mois_payes[0];
-    } else {
-      moisList = [moisFinal];
+      moisList = mois_payes
+        .map(m => parseInt(m, 10))
+        .filter(m => !isNaN(m) && m >= 1 && m <= 12);
+    }
+
+    if (moisList.length === 0) {
+      const moisFallback = mois || (new Date().getMonth() + 1);
+      moisList = [parseInt(moisFallback, 10)];
+    }
+
+    const moisFinal = moisList[0];
+
+    if (!anneeFinale || !moisFinal || moisFinal < 1 || moisFinal > 12) {
+      console.error('❌ annee ou mois invalide:', { anneeFinale, moisFinal, moisList });
+      return res.status(400).json({
+        success: false,
+        message: `Année (${anneeFinale}) ou mois (${moisFinal}) invalide`
+      });
     }
 
     const nombreMois = nombre_mois || moisList.length;
 
-    console.log(`📝 Enregistrement mensuel :`);
-    console.log(`   → annee = ${anneeFinale}`);
-    console.log(`   → mois_payes = [${moisList.join(', ')}]`);
-    console.log(`   → nombre_mois = ${nombreMois}`);
-    console.log(`   → montant = ${montant}`);
-    console.log(`   → frais_dossier = ${frais_dossier}`);
+    console.log('📝 Enregistrement mensuel (non-other):');
+    console.log('   → annee =', anneeFinale);
+    console.log('   → mois_payes =', moisList);
+    console.log('   → nombre_mois =', nombreMois);
+    console.log('   → montant =', montant);
 
+    // ─── Vérifier si déjà payé ───
     if (moisList.length > 0) {
-      const checkResult = await pool.query(
+      const placeholders = moisList.map((_, i) => `$${i + 4}`).join(', ');
+      const checkResult = await query(
         `SELECT id, mois FROM omda_app.paiements 
          WHERE usager_id = $1 AND usager_type = $2 
            AND annee = $3
            AND statut = 'paye'
-           AND mois IN (${moisList.map((_, i) => `$${i + 4}`).join(', ')})`,
+           AND mois IN (${placeholders})`,
         [usagerId, usagerType || 'hotel', anneeFinale, ...moisList]
       );
 
@@ -136,9 +391,11 @@ router.post('/paiements/enregistrer', async (req, res) => {
       }
     }
 
-    const result = await pool.query(
+    // ─── Insertion ───
+    const result = await query(
       `INSERT INTO omda_app.paiements 
-       (usager_id, usager_type, type_paiement, annee, mois, montant, date_paiement, statut, frais_dossier, montant_retard, est_retard, reference, nombre_mois, mois_payes)
+       (usager_id, usager_type, type_paiement, annee, mois, montant, date_paiement, 
+        statut, frais_dossier, montant_retard, est_retard, reference, nombre_mois, mois_payes)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING id`,
       [
@@ -170,15 +427,23 @@ router.post('/paiements/enregistrer', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ ERREUR SQL:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('❌ ERREUR SQL dans /paiements/enregistrer:');
+    console.error('   message :', error.message);
+    console.error('   code    :', error.code);
+    console.error('   detail  :', error.detail);
+    console.error('   stack   :', error.stack);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      code: error.code,
+      detail: error.detail
+    });
   }
 });
 
 // ============================================================
-// ✅ GET - Statistiques des paiements (AVEC "other" + GLOBAL)
-//    Le montant total est calculé UNIQUEMENT avec SUM(montant)
-//    → même source que PayementChoix
+// ✅ GET - Statistiques des paiements
+// ⚠️ Pour OTHER, on déduplique par usager_id
 // ============================================================
 router.get('/paiements/stats', async (req, res) => {
   try {
@@ -191,7 +456,7 @@ router.get('/paiements/stats', async (req, res) => {
       nightclub: { total: 0, totalPayes: 0, nonPayes: 0, montantTotal: 0 },
       media: { total: 0, totalPayes: 0, nonPayes: 0, montantTotal: 0 },
       occ: { total: 0, totalPayes: 0, nonPayes: 0, montantTotal: 0 },
-      other: { total: 0, totalPayes: 0, nonPayes: 0, montantTotal: 0 },   // ✅ AJOUT
+      other: { total: 0, totalPayes: 0, nonPayes: 0, montantTotal: 0 },
     };
 
     const types = [
@@ -201,25 +466,41 @@ router.get('/paiements/stats', async (req, res) => {
       { name: 'nightclub', table: 'usagers_nightclub' },
       { name: 'media', table: 'usagers_media' },
       { name: 'occ', table: 'usagers_occasionnel' },
-      { name: 'other', table: 'usager_other' },   // ✅ AJOUT
+      { name: 'other', table: 'usager_other' },
     ];
 
     for (const type of types) {
       try {
-        const totalResult = await pool.query(
+        const totalResult = await query(
           `SELECT COUNT(*) as count FROM omda_app.${type.table}`
         );
         stats[type.name].total = parseInt(totalResult.rows[0].count) || 0;
 
-        // ✅ SOMME UNIQUEMENT DE montant (comme PayementChoix)
-        const payesResult = await pool.query(
-          `SELECT 
-             COUNT(DISTINCT usager_id) as count,
-             COALESCE(SUM(montant), 0) as total_montant
-           FROM omda_app.paiements 
-           WHERE usager_type = $1 AND statut = 'paye'`,
-          [type.name]
-        );
+        let payesResult;
+        if (type.name === 'other') {
+          payesResult = await query(
+            `SELECT 
+               COUNT(DISTINCT usager_id) as count,
+               COALESCE(SUM(montant), 0) as total_montant
+             FROM omda_app.paiements p
+             WHERE p.usager_type = 'other' 
+               AND p.statut = 'paye'
+               AND p.id IN (
+                 SELECT MAX(id) FROM omda_app.paiements 
+                 WHERE usager_type = 'other' AND statut = 'paye'
+                 GROUP BY usager_id
+               )`
+          );
+        } else {
+          payesResult = await query(
+            `SELECT 
+               COUNT(DISTINCT usager_id) as count,
+               COALESCE(SUM(montant), 0) as total_montant
+             FROM omda_app.paiements 
+             WHERE usager_type = $1 AND statut = 'paye'`,
+            [type.name]
+          );
+        }
         stats[type.name].totalPayes = parseInt(payesResult.rows[0].count) || 0;
         stats[type.name].montantTotal = parseFloat(payesResult.rows[0].total_montant) || 0;
         stats[type.name].nonPayes = Math.max(
@@ -231,22 +512,28 @@ router.get('/paiements/stats', async (req, res) => {
       }
     }
 
-    // ✅ GLOBAL — UNIQUEMENT SUM(montant) sur tous les paiements 'paye'
-    const globalResult = await pool.query(`
+    const globalResult = await query(`
       SELECT 
         COALESCE(SUM(montant), 0) as montant_total,
         COUNT(*) as nb_paiements,
         COUNT(DISTINCT (usager_type || '_' || usager_id)) as nb_usagers_payes
-      FROM omda_app.paiements
-      WHERE statut = 'paye'
+      FROM omda_app.paiements p
+      WHERE p.statut = 'paye'
+        AND (
+          p.usager_type != 'other'
+          OR p.id IN (
+            SELECT MAX(id) FROM omda_app.paiements 
+            WHERE usager_type = 'other' AND statut = 'paye'
+            GROUP BY usager_id
+          )
+        )
     `);
 
     const montantTotalGlobal = parseFloat(globalResult.rows[0].montant_total) || 0;
     const nbPaiementsGlobal = parseInt(globalResult.rows[0].nb_paiements) || 0;
     const nbUsagersPayesGlobal = parseInt(globalResult.rows[0].nb_usagers_payes) || 0;
 
-    // Nombre total d'usagers toutes catégories (y compris "other")
-    const totalUsagersResult = await pool.query(`
+    const totalUsagersResult = await query(`
       SELECT 
         (SELECT COUNT(*) FROM omda_app.usagers_hotel) +
         (SELECT COUNT(*) FROM omda_app.usagers_magasin) +
@@ -265,7 +552,6 @@ router.get('/paiements/stats', async (req, res) => {
       nbPaiements: nbPaiementsGlobal,
     };
 
-    // Log de vérification
     console.log('═══════════════════════════════════════');
     console.log('📊 STATS PAIEMENTS — DÉTAIL');
     console.log(`   Total usagers .......... : ${totalUsagersGlobal}`);
@@ -293,7 +579,7 @@ router.get('/paiements/stats', async (req, res) => {
 router.get('/paiements/annees-disponibles/:type', async (req, res) => {
   const currentYear = new Date().getFullYear();
   try {
-    const result = await pool.query(
+    const result = await query(
       `SELECT DISTINCT annee FROM omda_app.paiements WHERE annee IS NOT NULL ORDER BY annee DESC`
     );
 
@@ -311,13 +597,15 @@ router.get('/paiements/annees-disponibles/:type', async (req, res) => {
 });
 
 // ============================================================
-// GET - Tous les paiements (avec region + nom pour chaque type, y compris "other")
+// GET - Tous les paiements
+// ✅ CORRECTION BUG n°1 : Renvoyer TOUTES les lignes OTHER
+//    (suppression du MAX(id) qui cachait les autres paiements)
 // ============================================================
 router.get('/paiements/tous', async (req, res) => {
   try {
     console.log('📊 Récupération de tous les paiements...');
 
-    const result = await pool.query(`
+    const result = await query(`
       SELECT 
         p.id,
         p.usager_id,
@@ -356,6 +644,7 @@ router.get('/paiements/tous', async (req, res) => {
           ELSE NULL
         END AS region
       FROM omda_app.paiements p
+      WHERE p.statut = 'paye'
       ORDER BY p.created_at DESC
     `);
 
@@ -383,7 +672,7 @@ router.get('/paiements/historique', async (req, res) => {
     console.log('📄 Récupération de l\'historique des paiements...');
     const historique = [];
 
-    const result = await pool.query(`
+    const result = await query(`
       SELECT 
         p.id,
         p.usager_id,
@@ -411,25 +700,25 @@ router.get('/paiements/historique', async (req, res) => {
       let region = 'N/A';
 
       if (row.usager_type === 'hotel') {
-        const u = await pool.query(`SELECT denomination, region FROM omda_app.usagers_hotel WHERE id = $1`, [row.usager_id]);
+        const u = await query(`SELECT denomination, region FROM omda_app.usagers_hotel WHERE id = $1`, [row.usager_id]);
         if (u.rows.length > 0) { usagerNom = u.rows[0].denomination; region = u.rows[0].region; }
       } else if (row.usager_type === 'grand-surface') {
-        const u = await pool.query(`SELECT denomination, region FROM omda_app.usagers_magasin WHERE id = $1`, [row.usager_id]);
+        const u = await query(`SELECT denomination, region FROM omda_app.usagers_magasin WHERE id = $1`, [row.usager_id]);
         if (u.rows.length > 0) { usagerNom = u.rows[0].denomination; region = u.rows[0].region; }
       } else if (row.usager_type === 'bus') {
-        const u = await pool.query(`SELECT denomination, region FROM omda_app.usagers_bus WHERE id = $1`, [row.usager_id]);
+        const u = await query(`SELECT denomination, region FROM omda_app.usagers_bus WHERE id = $1`, [row.usager_id]);
         if (u.rows.length > 0) { usagerNom = u.rows[0].denomination; region = u.rows[0].region; }
       } else if (row.usager_type === 'nightclub') {
-        const u = await pool.query(`SELECT denomination, region FROM omda_app.usagers_nightclub WHERE id = $1`, [row.usager_id]);
+        const u = await query(`SELECT denomination, region FROM omda_app.usagers_nightclub WHERE id = $1`, [row.usager_id]);
         if (u.rows.length > 0) { usagerNom = u.rows[0].denomination; region = u.rows[0].region; }
       } else if (row.usager_type === 'media') {
-        const u = await pool.query(`SELECT denomination, region FROM omda_app.usagers_media WHERE id = $1`, [row.usager_id]);
+        const u = await query(`SELECT denomination, region FROM omda_app.usagers_media WHERE id = $1`, [row.usager_id]);
         if (u.rows.length > 0) { usagerNom = u.rows[0].denomination; region = u.rows[0].region; }
       } else if (row.usager_type === 'occ') {
-        const u = await pool.query(`SELECT denomination, region FROM omda_app.usagers_occasionnel WHERE id = $1`, [row.usager_id]);
+        const u = await query(`SELECT denomination, region FROM omda_app.usagers_occasionnel WHERE id = $1`, [row.usager_id]);
         if (u.rows.length > 0) { usagerNom = u.rows[0].denomination; region = u.rows[0].region; }
-      } else if (row.usager_type === 'other') {   // ✅ AJOUT
-        const u = await pool.query(`SELECT denomination, region FROM omda_app.usager_other WHERE id = $1`, [row.usager_id]);
+      } else if (row.usager_type === 'other') {
+        const u = await query(`SELECT denomination, region FROM omda_app.usager_other WHERE id = $1`, [row.usager_id]);
         if (u.rows.length > 0) { usagerNom = u.rows[0].denomination; region = u.rows[0].region; }
       }
 
@@ -440,7 +729,7 @@ router.get('/paiements/historique', async (req, res) => {
         'nightclub': 'Night club',
         'media': 'Télé/Radio',
         'occ': 'OCC',
-        'other': 'Autre',   // ✅ AJOUT
+        'other': 'Autre',
       };
 
       const moisLabels = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];

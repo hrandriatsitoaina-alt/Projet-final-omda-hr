@@ -5,14 +5,8 @@ import {
   getPdfLocale,
 } from './pdfI18n';
 
-// ============================================================
-// ✅ NOM OFFICIEL FIXE (identique dans les 3 langues)
-// ============================================================
 const OMDA_NOM_FIXE = 'OFFICE MALAGASY DU DROIT D\'AUTEUR';
 
-// ============================================================
-// FONCTIONS UTILITAIRES EXPORTÉES
-// ============================================================
 export const formatDate = (dateString, langue = 'fr') => {
   if (!dateString) return '';
   try {
@@ -43,9 +37,15 @@ export const getCurrentDate = (langue = 'fr') => {
 };
 
 // ============================================================
-// CONVERSION NOMBRE EN LETTRES (FR uniquement)
+// CONVERSION NOMBRE EN LETTRES (FR / EN)
+//   - 'fr' → français
+//   - 'en' → anglais
+//   - 'mg' → PAS DE CONVERSION (retourne '' pour ne rien afficher)
 // ============================================================
 const nombreEnLettres = (num, langue = 'fr') => {
+  if (langue === 'mg') return '';
+  if (langue === 'en') return nombreEnLettresAnglais(num);
+
   if (num === 0) return 'zéro';
   if (num < 0) return 'moins ' + nombreEnLettres(-num, langue);
 
@@ -125,6 +125,60 @@ const nombreEnLettres = (num, langue = 'fr') => {
   return convertMillions(roundedNum);
 };
 
+// ============================================================
+// CONVERSION NOMBRE EN LETTRES — ANGLAIS
+// ============================================================
+const nombreEnLettresAnglais = (num) => {
+  if (num === 0) return 'zero';
+  if (num < 0) return 'minus ' + nombreEnLettresAnglais(-num);
+
+  const ones = [
+    '', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+    'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
+    'seventeen', 'eighteen', 'nineteen'
+  ];
+  const tens = [
+    '', '', 'twenty', 'thirty', 'forty', 'fifty',
+    'sixty', 'seventy', 'eighty', 'ninety'
+  ];
+
+  const convertHundreds = (n) => {
+    if (n === 0) return '';
+    if (n < 20) return ones[n];
+    if (n < 100) {
+      const t = Math.floor(n / 10);
+      const u = n % 10;
+      return tens[t] + (u > 0 ? '-' + ones[u] : '');
+    }
+    const h = Math.floor(n / 100);
+    const remainder = n % 100;
+    let result = ones[h] + ' hundred';
+    if (remainder > 0) result += ' and ' + convertHundreds(remainder);
+    return result;
+  };
+
+  const convertThousands = (n) => {
+    if (n < 1000) return convertHundreds(n);
+    const thousands = Math.floor(n / 1000);
+    const remainder = n % 1000;
+    let result = convertHundreds(thousands) + ' thousand';
+    if (remainder > 0) result += ' ' + convertHundreds(remainder);
+    return result;
+  };
+
+  const convertMillions = (n) => {
+    if (n < 1000000) return convertThousands(n);
+    const millions = Math.floor(n / 1000000);
+    const remainder = n % 1000000;
+    let result = convertHundreds(millions) + ' million';
+    if (remainder > 0) result += ' ' + convertThousands(remainder);
+    return result;
+  };
+
+  const roundedNum = Math.round(num);
+  return convertMillions(roundedNum);
+};
+
 const drawCheckbox = (doc, x, y, checked) => {
   const size = 4.5;
   doc.setLineWidth(0.5);
@@ -136,9 +190,6 @@ const drawCheckbox = (doc, x, y, checked) => {
   }
 };
 
-// ============================================================
-// ✅ Secours : lit la langue stockée par ParametreContext
-// ============================================================
 const lireLangueDepuisStorage = () => {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return null;
@@ -149,10 +200,8 @@ const lireLangueDepuisStorage = () => {
   }
 };
 
-// ✅ Signature étendue : (usager, paymentDetails, options)
 export const generateNightPDF = (usager, paymentDetails = {}, options = {}) => {
   try {
-    // ✅ Langue : priorité à options.langue, sinon localStorage, sinon 'fr'
     const langue = options.langue || lireLangueDepuisStorage() || 'fr';
     const t = createPdfT(langue);
 
@@ -172,7 +221,6 @@ export const generateNightPDF = (usager, paymentDetails = {}, options = {}) => {
     let yPos = 25;
     const lineSpacing = 7.2;
 
-    // Récupération des données
     const demandeur = usager?.demandeur || '';
     const denomination = usager?.denomination || '';
     const adresseSiege = usager?.adresse_siege || '';
@@ -200,7 +248,6 @@ export const generateNightPDF = (usager, paymentDetails = {}, options = {}) => {
     const jaugeMax = usager?.jauge_max || 0;
     const horaires = usager?.horaires || '';
 
-    // MOYENS DE COMMUNICATION
     let radioTaux = 0, lecteurTaux = 0, tvTaux = 0, autresTaux = 0;
 
     try {
@@ -238,7 +285,14 @@ export const generateNightPDF = (usager, paymentDetails = {}, options = {}) => {
 
     const baseTotal = (montantMensuel + sommeTaux) * uniter;
     const soitTotal = baseTotal + fraisDossier;
+
     const totalEnLettres = nombreEnLettres(Math.round(soitTotal), langue);
+
+    const totalLabel = t('Soit au Total', 'Vola total', 'Total amount');
+    const totalValue = formatNumber(soitTotal);
+    const totalLine = totalEnLettres
+      ? `${totalLabel} : ${totalValue} Ariary (${totalEnLettres})`
+      : `${totalLabel} : ${totalValue} Ariary`;
 
     const aCompterDu = usager?.a_compter_du ? formatDate(usager.a_compter_du, langue) : '';
     const echeance = usager?.echeance ? formatDate(usager.echeance, langue) : '';
@@ -247,13 +301,11 @@ export const generateNightPDF = (usager, paymentDetails = {}, options = {}) => {
     const dateSignature = usager?.date_signature ? formatDate(usager.date_signature, langue) : getCurrentDate(langue);
 
     // ========== PAGE 1 ==========
-    // ✅ Nom officiel OMDA — FIXE
     doc.setFont('times', 'bold');
     doc.setFontSize(16);
     doc.text(OMDA_NOM_FIXE, pageWidth / 2, yPos, { align: 'center' });
     yPos += 8;
 
-    // ✅ Sous-titre traduit
     doc.setFont('times', 'bold');
     doc.setFontSize(14);
     doc.text(
@@ -366,7 +418,6 @@ export const generateNightPDF = (usager, paymentDetails = {}, options = {}) => {
     doc.text(`${t("Horaires d'ouverture", 'Ora fisokafana', 'Opening hours')} : ${horaires || '……………………………………'}`, marginX + 5, yPos);
     yPos += lineSpacing + 5;
 
-    // Moyen de communication
     doc.text(`${t('Moyen de communication', 'Fitaovam-pifandraisana', 'Communication means')} :`, marginX + 5, yPos);
 
     const moyenStartX = marginX + 58;
@@ -414,9 +465,8 @@ export const generateNightPDF = (usager, paymentDetails = {}, options = {}) => {
     );
     yPos += lineSpacing;
 
-    // Soit au Total
     doc.setFont('times', 'bold');
-    doc.text(`${t('Soit au Total', 'Vola total', 'Total amount')} : ${formatNumber(soitTotal)} Ariary (${totalEnLettres})`, marginX + 5, yPos);
+    doc.text(totalLine, marginX + 5, yPos);
     yPos += lineSpacing + 5;
 
     doc.setFont('times', 'normal');
@@ -425,7 +475,6 @@ export const generateNightPDF = (usager, paymentDetails = {}, options = {}) => {
     doc.text(`${t('Echéance', 'Faran\'ny fe-potoana', 'Due date')} : ${echeance || '……………………………………'}`, marginX + 5, yPos);
     yPos += lineSpacing;
 
-    // Signature
     doc.text(
       `${t('Je soussigné(e) Mr/Mme', 'Izaho manao sonia .', 'I, the undersigned Mr/Mrs')} ${confirmationNom || '……………………………………'}`,
       marginX + 5,

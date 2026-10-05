@@ -4,7 +4,7 @@ const router = express.Router();
 const pool = require('../database');
 
 // ============================================================
-// ✅ UTILITAIRES : Conversion sécurisée des types
+// ✅ UTILITAIRES
 // ============================================================
 const toNumber = (v) => {
   if (v === undefined || v === null || v === '') return 0;
@@ -21,12 +21,74 @@ const toDate = (v) => {
   return v;
 };
 
+const normalizeStr = (str) => {
+  if (!str) return '';
+  return String(str)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+};
+
+const toId = (v) => {
+  if (v === undefined || v === null || v === '') return null;
+  const n = parseInt(v, 10);
+  return isNaN(n) ? null : n;
+};
+
+// ============================================================
+// ✅ HELPER : Résoudre region_id / ville_id depuis texte
+// ============================================================
+const resolveLocalisation = async (data) => {
+  const loc = {
+    region_id: toId(data.region_id || data.regionId),
+    ville_id: toId(data.ville_id || data.villeId),
+    quartier_id: toId(data.quartier_id || data.quartierId),
+    numero_localite: data.numero_localite || data.numeroLocalite || null,
+  };
+
+  // Si pas de region_id mais region (texte) fourni → chercher l'ID
+  if (!loc.region_id && data.region) {
+    try {
+      const r = await pool.query(
+        'SELECT id FROM regions WHERE LOWER(nom) = LOWER($1)',
+        [data.region]
+      );
+      if (r.rows.length > 0) loc.region_id = r.rows[0].id;
+    } catch (e) { /* ignore */ }
+  }
+
+  // Si pas de ville_id mais ville (texte) fourni → chercher l'ID
+  if (!loc.ville_id && data.ville && loc.region_id) {
+    try {
+      const v = await pool.query(
+        'SELECT id FROM villes WHERE region_id = $1 AND LOWER(nom) = LOWER($2)',
+        [loc.region_id, data.ville]
+      );
+      if (v.rows.length > 0) loc.ville_id = v.rows[0].id;
+    } catch (e) { /* ignore */ }
+  }
+
+  return loc;
+};
+
 // ============================================================
 // GET - Paiements par type d'usager
+//    ✅ Filtres : ?region_id=...&ville_id=...&quartier_id=...
+//    ✅ Fallback texte : ?region=...&ville=...
+//    ✅ JOIN pour récupérer region_nom, ville_nom, quartier_nom
 // ============================================================
 router.get('/usagers/paiements/:type', async (req, res) => {
   const { type } = req.params;
+  const { region, ville, region_id, ville_id, quartier_id } = req.query;
+
   console.log(`📊 Récupération usagers pour ${type}...`);
+  if (region_id) console.log(`   📍 region_id : ${region_id}`);
+  if (ville_id) console.log(`   🏙️  ville_id : ${ville_id}`);
+  if (quartier_id) console.log(`   🏘️  quartier_id : ${quartier_id}`);
+  if (region) console.log(`   📍 region (texte) : ${region}`);
+  if (ville) console.log(`   🏙️  ville (texte) : ${ville}`);
+
   const typeMapping = {
     'hotel': 'usagers_hotel',
     'grand-surface': 'usagers_magasin',
@@ -37,11 +99,68 @@ router.get('/usagers/paiements/:type', async (req, res) => {
   };
   const tableName = typeMapping[type];
   if (!tableName) return res.status(400).json({ success: false, message: 'Type invalide' });
+
   try {
-    const usagers = await pool.query(`SELECT * FROM ${tableName} ORDER BY id`);
+    let sqlQuery = `
+      SELECT 
+        u.*,
+        r.nom AS region_nom,
+        v.nom AS ville_nom,
+        v.quartier AS quartier_nom,
+        v.telephone AS ville_telephone
+      FROM ${tableName} u
+      LEFT JOIN regions r ON u.region_id = r.id
+      LEFT JOIN villes v ON u.ville_id = v.id
+    `;
+    const sqlParams = [];
+    const conditions = [];
+
+    // ✅ Filtre région : ID prioritaire, sinon texte
+    if (region_id) {
+      sqlParams.push(toId(region_id));
+      conditions.push(`u.region_id = $${sqlParams.length}`);
+    } else if (region) {
+      sqlParams.push(region);
+      conditions.push(`LOWER(u.region) = LOWER($${sqlParams.length})`);
+    }
+
+    // ✅ Filtre ville : ID prioritaire, sinon texte
+    if (ville_id) {
+      sqlParams.push(toId(ville_id));
+      conditions.push(`u.ville_id = $${sqlParams.length}`);
+    } else if (ville) {
+      sqlParams.push(`%${ville.toLowerCase()}%`);
+      const idx = sqlParams.length;
+      conditions.push(`(
+        LOWER(COALESCE(u.adresse_siege, '')) LIKE $${idx}
+        OR LOWER(COALESCE(u.adresse, '')) LIKE $${idx}
+        OR LOWER(COALESCE(u.lieu_evenement, '')) LIKE $${idx}
+        OR LOWER(COALESCE(u.siege, '')) LIKE $${idx}
+        OR LOWER(COALESCE(u.domicile, '')) LIKE $${idx}
+      )`);
+    }
+
+    // ✅ Filtre quartier
+    if (quartier_id) {
+      sqlParams.push(toId(quartier_id));
+      conditions.push(`u.quartier_id = $${sqlParams.length}`);
+    }
+
+    if (conditions.length > 0) {
+      sqlQuery += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    sqlQuery += ' ORDER BY u.id';
+
+    console.log(`📝 SQL : ${sqlQuery}`);
+    console.log(`📝 Params :`, sqlParams);
+
+    const usagers = await pool.query(sqlQuery, sqlParams);
     console.log(`✅ ${usagers.rows.length} usagers trouvés dans ${tableName}`);
+
     const result = [];
     const currentYear = new Date().getFullYear();
+
     for (const usager of usagers.rows) {
       const montantMensuel = parseFloat(usager.montant_mensuel) || 0;
       let moisCreation = 1, anneeCreation = currentYear;
@@ -50,6 +169,7 @@ router.get('/usagers/paiements/:type', async (req, res) => {
         moisCreation = creationDate.getMonth() + 1;
         anneeCreation = creationDate.getFullYear();
       }
+
       const paiements = await pool.query(
         `SELECT mois, annee FROM paiements 
          WHERE usager_id = $1 AND usager_type = $2 
@@ -57,6 +177,7 @@ router.get('/usagers/paiements/:type', async (req, res) => {
          ORDER BY annee, mois`,
         [usager.id, type]
       );
+
       const moisPayesParAnnee = {}, anneesPayes = {};
       for (const p of paiements.rows) {
         const annee = p.annee, mois = p.mois;
@@ -65,6 +186,7 @@ router.get('/usagers/paiements/:type', async (req, res) => {
         anneesPayes[annee].push(mois);
         moisPayesParAnnee[annee].push(mois);
       }
+
       const resumeAnnees = [];
       for (let annee = currentYear - 1; annee <= currentYear + 1; annee++) {
         const moisPayes = anneesPayes[annee] || [];
@@ -78,23 +200,29 @@ router.get('/usagers/paiements/:type', async (req, res) => {
         const moisValides = moisPayes.filter(mois => mois >= moisDebutAnnee);
         const nbMoisValides = moisValides.length;
         if (nbMoisValides >= moisTotalAttendus) estComplete = true;
+
         let affichage = '';
+        const moisLabelsShort = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'];
         if (estComplete) {
-          const moisLabelsShort = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'];
           const moisTries = [...moisValides].sort((a,b)=>a-b);
           const affichageMois = moisTries.map(m=>moisLabelsShort[m-1]).join(', ');
           affichage = `✅ 12/12${affichageMois ? ` (${affichageMois})` : ''}`;
         } else if (nbMoisValides > 0) {
-          const moisLabelsShort = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'];
           const moisTries = [...moisValides].sort((a,b)=>a-b);
           const affichageMois = moisTries.map(m=>moisLabelsShort[m-1]).join(', ');
           affichage = `${nbMoisValides}/${moisTotalAttendus}${affichageMois ? ` (${affichageMois})` : ''}`;
         } else {
           affichage = `0/${moisTotalAttendus}`;
         }
-        resumeAnnees.push({ annee, nbMois: nbMoisValides, moisTotalAttendus, moisDebut: moisDebutAnnee, estComplete, affichage, moisCreation: annee===anneeCreation ? moisCreation : null, anneeCreation: annee===anneeCreation ? anneeCreation : null });
+
+        resumeAnnees.push({
+          annee, nbMois: nbMoisValides, moisTotalAttendus,
+          moisDebut: moisDebutAnnee, estComplete, affichage,
+          moisCreation: annee===anneeCreation ? moisCreation : null,
+          anneeCreation: annee===anneeCreation ? anneeCreation : null
+        });
       }
-      
+
       let artistes_detail = [];
       if (type === 'occ') {
         try {
@@ -107,12 +235,11 @@ router.get('/usagers/paiements/:type', async (req, res) => {
             [usager.id]
           );
           artistes_detail = artistesResult.rows;
-          console.log(`🎵 ${artistes_detail.length} artistes récupérés pour OCC ${usager.id}`);
         } catch (err) {
           console.error('❌ Erreur récupération artistes OCC:', err);
         }
       }
-      
+
       result.push({
         id: usager.id,
         denomination: usager.denomination || usager.genre_manifestation || usager.nom_evenement || 'Sans nom',
@@ -120,7 +247,16 @@ router.get('/usagers/paiements/:type', async (req, res) => {
         telephone: usager.telephone || '',
         email: usager.email || '',
         montant_mensuel: montantMensuel,
-        region: usager.region || 'N/A',
+        region: usager.region_nom || usager.region || 'N/A',
+        region_id: usager.region_id || null,
+        ville_id: usager.ville_id || null,
+        quartier_id: usager.quartier_id || null,
+        numero_localite: usager.numero_localite || '',
+        region_nom: usager.region_nom || usager.region || 'N/A',
+        ville_nom: usager.ville_nom || '',
+        quartier_nom: usager.quartier_nom || '',
+        ville_telephone: usager.ville_telephone || '',
+        ville: usager.ville_nom || usager.ville || '',
         adresse: usager.adresse || usager.adresse_siege || '',
         adresse_siege: usager.adresse_siege || '',
         nif_stat: usager.nif_stat || '',
@@ -177,6 +313,7 @@ router.get('/usagers/paiements/:type', async (req, res) => {
         frais_dossier: parseFloat(usager.frais_dossier) || 0
       });
     }
+
     res.json({ success: true, usagers: result });
   } catch (error) {
     console.error('❌ Erreur:', error);
@@ -314,17 +451,60 @@ router.get('/usagers/check', async (req, res) => {
 
 // ============================================================
 // GET - Usagers OCC avec détails des artistes
+//    ✅ Filtres : ?region_id=...&ville_id=...&quartier_id=...
 // ============================================================
 router.get('/usagers/occasionnels', async (req, res) => {
+  const { region, ville, region_id, ville_id, quartier_id } = req.query;
+
   try {
-    const query = `
+    let query = `
       SELECT 
         o.*,
-        COALESCE(o.montant, 0) + COALESCE(o.frais_dossier, 0) + COALESCE(o.montant_retard, 0) AS montant_total
+        COALESCE(o.montant, 0) + COALESCE(o.frais_dossier, 0) + COALESCE(o.montant_retard, 0) AS montant_total,
+        r.nom AS region_nom,
+        v.nom AS ville_nom,
+        v.quartier AS quartier_nom,
+        v.telephone AS ville_telephone
       FROM usagers_occasionnel o
-      ORDER BY o.date_evenement DESC NULLS LAST, o.created_at DESC
+      LEFT JOIN regions r ON o.region_id = r.id
+      LEFT JOIN villes v ON o.ville_id = v.id
     `;
-    const result = await pool.query(query);
+    const params = [];
+    const conditions = [];
+
+    if (region_id) {
+      params.push(toId(region_id));
+      conditions.push(`o.region_id = $${params.length}`);
+    } else if (region) {
+      params.push(region);
+      conditions.push(`LOWER(o.region) = LOWER($${params.length})`);
+    }
+
+    if (ville_id) {
+      params.push(toId(ville_id));
+      conditions.push(`o.ville_id = $${params.length}`);
+    } else if (ville) {
+      params.push(`%${ville.toLowerCase()}%`);
+      const idx = params.length;
+      conditions.push(`(
+        LOWER(COALESCE(o.lieu_evenement, '')) LIKE $${idx}
+        OR LOWER(COALESCE(o.domicile, '')) LIKE $${idx}
+        OR LOWER(COALESCE(o.adresse, '')) LIKE $${idx}
+      )`);
+    }
+
+    if (quartier_id) {
+      params.push(toId(quartier_id));
+      conditions.push(`o.quartier_id = $${params.length}`);
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY o.date_evenement DESC NULLS LAST, o.created_at DESC';
+
+    const result = await pool.query(query, params);
 
     const events = [];
     for (const row of result.rows) {
@@ -349,6 +529,15 @@ router.get('/usagers/occasionnels', async (req, res) => {
         genre_manifestation: row.genre_manifestation,
         date_evenement: row.date_evenement,
         lieu_evenement: row.lieu_evenement,
+        region_id: row.region_id || null,
+        ville_id: row.ville_id || null,
+        quartier_id: row.quartier_id || null,
+        numero_localite: row.numero_localite || '',
+        region_nom: row.region_nom || row.region || '',
+        ville_nom: row.ville_nom || '',
+        quartier_nom: row.quartier_nom || '',
+        ville_telephone: row.ville_telephone || '',
+        ville: row.ville_nom || row.ville || '',
         artistes: row.artistes,
         artistes_detail: artistes_detail,
         artistesList: artistes_detail.map(a => ({
@@ -408,7 +597,17 @@ router.get('/usagers/type/:type', async (req, res) => {
   const tableName = typeMapping[type];
   if (!tableName) return res.status(400).json({ success: false, message: 'Type d\'usager invalide' });
   try {
-    const result = await pool.query(`SELECT * FROM ${tableName} ORDER BY id`);
+    const result = await pool.query(`
+      SELECT 
+        u.*,
+        r.nom AS region_nom,
+        v.nom AS ville_nom,
+        v.quartier AS quartier_nom
+      FROM ${tableName} u
+      LEFT JOIN regions r ON u.region_id = r.id
+      LEFT JOIN villes v ON u.ville_id = v.id
+      ORDER BY u.id
+    `);
     res.json({ success: true, usagers: result.rows });
   } catch (error) {
     console.error('❌ Erreur récupération usagers par type:', error);
@@ -417,7 +616,7 @@ router.get('/usagers/type/:type', async (req, res) => {
 });
 
 // ============================================================
-// GET - Tous les usagers (inclut maintenant usager_other)
+// GET - Tous les usagers (avec JOIN localisation)
 // ============================================================
 router.get('/usagers', async (req, res) => {
   try {
@@ -433,8 +632,25 @@ router.get('/usagers', async (req, res) => {
     let allUsagers = [];
     for (const table of tables) {
       try {
-        const result = await pool.query(`SELECT * FROM ${table.name}`);
-        const usagers = result.rows.map(u => ({ ...u, type_usager: table.type, uniter: u.uniter || 1 }));
+        const result = await pool.query(`
+          SELECT 
+            u.*,
+            r.nom AS region_nom,
+            v.nom AS ville_nom,
+            v.quartier AS quartier_nom,
+            v.telephone AS ville_telephone
+          FROM ${table.name} u
+          LEFT JOIN regions r ON u.region_id = r.id
+          LEFT JOIN villes v ON u.ville_id = v.id
+        `);
+        const usagers = result.rows.map(u => ({
+          ...u,
+          type_usager: table.type,
+          uniter: u.uniter || 1,
+          // Priorité aux noms JOIN
+          region: u.region_nom || u.region || '',
+          ville: u.ville_nom || u.ville || '',
+        }));
         allUsagers = [...allUsagers, ...usagers];
         console.log(`✅ ${table.name}: ${usagers.length} usagers chargés`);
       } catch (tableError) {
@@ -442,15 +658,26 @@ router.get('/usagers', async (req, res) => {
       }
     }
 
-    // ✅ AJOUT DES USAGERS OTHER (type "Autre")
     try {
-      const otherResult = await pool.query(`SELECT * FROM usager_other ORDER BY id`);
+      const otherResult = await pool.query(`
+        SELECT 
+          u.*,
+          r.nom AS region_nom,
+          v.nom AS ville_nom,
+          v.quartier AS quartier_nom
+        FROM usager_other u
+        LEFT JOIN regions r ON u.region_id = r.id
+        LEFT JOIN villes v ON u.ville_id = v.id
+        ORDER BY u.id
+      `);
       const otherUsagers = otherResult.rows.map(u => ({
         ...u,
-        type_usager: 'Autre',              // ✅ Type affiché dans GestionCrud
-        type_other: u.type_usager,         // cd, mp3, hologramme, ...
+        type_usager: 'Autre',
+        type_other: u.type_usager,
         demandeur: [u.nom, u.prenom].filter(Boolean).join(' ') || u.denomination || '',
         uniter: 1,
+        region: u.region_nom || u.region || '',
+        ville: u.ville_nom || u.ville || '',
       }));
       allUsagers = [...allUsagers, ...otherUsagers];
       console.log(`✅ usager_other: ${otherUsagers.length} usagers chargés`);
@@ -484,8 +711,13 @@ router.get('/usagers/other', async (req, res) => {
         COALESCE(
           (SELECT SUM(ol.montant) FROM other_lignes ol WHERE ol.usager_other_id = uo.id),
           0
-        ) AS montant_total
+        ) AS montant_total,
+        r.nom AS region_nom,
+        v.nom AS ville_nom,
+        v.quartier AS quartier_nom
       FROM usager_other uo
+      LEFT JOIN regions r ON uo.region_id = r.id
+      LEFT JOIN villes v ON uo.ville_id = v.id
       ORDER BY uo.created_at DESC NULLS LAST, uo.id DESC
     `);
 
@@ -516,7 +748,14 @@ router.get('/usagers/other', async (req, res) => {
         telephone: row.telephone || '',
         email: row.email || '',
         adresse: row.adresse || '',
-        region: row.region || '',
+        region: row.region_nom || row.region || '',
+        region_id: row.region_id || null,
+        ville_id: row.ville_id || null,
+        quartier_id: row.quartier_id || null,
+        region_nom: row.region_nom || row.region || '',
+        ville_nom: row.ville_nom || '',
+        quartier_nom: row.quartier_nom || '',
+        ville: row.ville_nom || '',
         representant_par: row.representant_par || '',
         representant_cin: row.representant_cin || '',
         representant_cin_delivree: row.representant_cin_delivree || null,
@@ -549,7 +788,17 @@ router.get('/usagers/other', async (req, res) => {
 router.get('/usagers/other/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await pool.query(`SELECT * FROM usager_other WHERE id = $1`, [id]);
+    const result = await pool.query(`
+      SELECT 
+        u.*,
+        r.nom AS region_nom,
+        v.nom AS ville_nom,
+        v.quartier AS quartier_nom
+      FROM usager_other u
+      LEFT JOIN regions r ON u.region_id = r.id
+      LEFT JOIN villes v ON u.ville_id = v.id
+      WHERE u.id = $1
+    `, [id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Usager "Autre" non trouvé' });
     }
@@ -641,7 +890,7 @@ router.get('/usagers/occasionnel/:id', async (req, res) => {
   try {
     const result = await pool.query(`SELECT * FROM usagers_occasionnel WHERE id = $1`, [id]);
     if (result.rows.length === 0) return res.status(404).json({ success: false, message: 'OCC non trouvé' });
-    
+
     let artistes_detail = [];
     try {
       const artistesResult = await pool.query(
@@ -656,7 +905,7 @@ router.get('/usagers/occasionnel/:id', async (req, res) => {
     } catch (err) {
       console.error('❌ Erreur récupération artistes:', err);
     }
-    
+
     const usager = result.rows[0];
     usager.artistes_detail = artistes_detail;
     res.json({ success: true, usager });
@@ -747,6 +996,7 @@ router.get('/occ/dossier-number', async (req, res) => {
 
 // ============================================================
 // POST - Ajouter un usager
+//    ✅ NOUVEAU : résolution region_id/ville_id via texte
 // ============================================================
 router.post('/usagers', async (req, res) => {
   const { type, userId, ...data } = req.body;
@@ -762,7 +1012,30 @@ router.post('/usagers', async (req, res) => {
   const montantMensuelVal = toNumber(get('montant_mensuel', 'montantMensuel', 0));
   const fraisDossierVal = toNumber(get('frais_dossier', 'fraisDossier', 0));
 
+  // ✅ NOUVEAU : résolution des IDs de localisation
+  let localisation = {
+    region_id: toId(data.region_id || data.regionId),
+    ville_id: toId(data.ville_id || data.villeId),
+    quartier_id: toId(data.quartier_id || data.quartierId),
+    numero_localite: data.numero_localite || data.numeroLocalite || null,
+  };
+
   try {
+    // Résolution automatique si texte fourni
+    if (!localisation.region_id && data.region) {
+      const r = await pool.query('SELECT id FROM regions WHERE LOWER(nom) = LOWER($1)', [data.region]);
+      if (r.rows.length > 0) localisation.region_id = r.rows[0].id;
+    }
+    if (!localisation.ville_id && data.ville && localisation.region_id) {
+      const v = await pool.query(
+        'SELECT id FROM villes WHERE region_id = $1 AND LOWER(nom) = LOWER($2)',
+        [localisation.region_id, data.ville]
+      );
+      if (v.rows.length > 0) localisation.ville_id = v.rows[0].id;
+    }
+
+    console.log('   📍 Localisation résolue :', localisation);
+
     let tableName = '', insertData = {}, uniter = data.uniter || 1;
     const typeMapping = {
       'Hôtel': 'usagers_hotel',
@@ -774,10 +1047,10 @@ router.post('/usagers', async (req, res) => {
     };
     tableName = typeMapping[type];
     if (!tableName) return res.status(400).json({ success: false, message: 'Type d\'usager inconnu' });
-    
+
     switch(type) {
       case 'Hôtel':
-        insertData = { 
+        insertData = {
           demandeur: get('demandeur', 'demandeur'),
           denomination: get('denomination', 'denomination'),
           adresse_siege: get('adresse_siege', 'adresseSiege'),
@@ -806,12 +1079,16 @@ router.post('/usagers', async (req, res) => {
           frais_dossier: fraisDossierVal,
           region: get('region', 'region'),
           uniter: uniter,
-          created_by: userId
+          created_by: userId,
+          region_id: localisation.region_id,
+          ville_id: localisation.ville_id,
+          quartier_id: localisation.quartier_id,
+          numero_localite: localisation.numero_localite,
         };
         break;
 
       case 'Grand Surface':
-        insertData = { 
+        insertData = {
           demandeur: get('demandeur', 'demandeur'),
           denomination: get('denomination', 'denomination'),
           adresse_siege: get('adresse_siege', 'adresseSiege'),
@@ -838,12 +1115,16 @@ router.post('/usagers', async (req, res) => {
           frais_dossier: fraisDossierVal,
           region: get('region', 'region'),
           uniter: uniter,
-          created_by: userId
+          created_by: userId,
+          region_id: localisation.region_id,
+          ville_id: localisation.ville_id,
+          quartier_id: localisation.quartier_id,
+          numero_localite: localisation.numero_localite,
         };
         break;
 
       case 'Bus':
-        insertData = { 
+        insertData = {
           demandeur: get('demandeur', 'demandeur'),
           denomination: get('denomination', 'denomination'),
           adresse_siege: get('adresse_siege', 'adresseSiege'),
@@ -873,12 +1154,16 @@ router.post('/usagers', async (req, res) => {
           date_signature: toDate(get('date_signature', 'dateSignature', null)),
           lieu_signature: get('lieu_signature', 'lieuSignature'),
           uniter: uniter,
-          created_by: userId
+          created_by: userId,
+          region_id: localisation.region_id,
+          ville_id: localisation.ville_id,
+          quartier_id: localisation.quartier_id,
+          numero_localite: localisation.numero_localite,
         };
         break;
 
       case 'Night club':
-        insertData = { 
+        insertData = {
           demandeur: get('demandeur', 'demandeur'),
           denomination: get('denomination', 'denomination'),
           adresse_siege: get('adresse_siege', 'adresseSiege'),
@@ -906,12 +1191,16 @@ router.post('/usagers', async (req, res) => {
           date_signature: toDate(get('date_signature', 'dateSignature', null)),
           lieu_signature: get('lieu_signature', 'lieuSignature'),
           uniter: uniter,
-          created_by: userId
+          created_by: userId,
+          region_id: localisation.region_id,
+          ville_id: localisation.ville_id,
+          quartier_id: localisation.quartier_id,
+          numero_localite: localisation.numero_localite,
         };
         break;
 
       case 'Télé/Radio':
-        insertData = { 
+        insertData = {
           proprietaire_nom: get('proprietaire_nom', 'proprietaireNom'),
           proprietaire_adresse: get('proprietaire_adresse', 'proprietaireAdresse'),
           proprietaire_tel: get('proprietaire_tel', 'proprietaireTel'),
@@ -952,12 +1241,16 @@ router.post('/usagers', async (req, res) => {
           date_signature: toDate(get('date_signature', 'dateSignature', null)),
           lieu_signature: get('lieu_signature', 'lieuSignature'),
           uniter: uniter,
-          created_by: userId
+          created_by: userId,
+          region_id: localisation.region_id,
+          ville_id: localisation.ville_id,
+          quartier_id: localisation.quartier_id,
+          numero_localite: localisation.numero_localite,
         };
         break;
 
       case 'OCC':
-        insertData = { 
+        insertData = {
           organisateurs: get('organisateurs', 'organisateurs'),
           representant_par: get('representant_par', 'representantPar'),
           genre_manifestation: get('genre_manifestation', 'genreManifestation'),
@@ -985,7 +1278,11 @@ router.post('/usagers', async (req, res) => {
           is_retard: get('is_retard', 'is_retard', false),
           soit_total: toNumber(get('soit_total', 'soit_total', 0)),
           uniter: data.uniter || 1,
-          created_by: userId
+          created_by: userId,
+          region_id: localisation.region_id,
+          ville_id: localisation.ville_id,
+          quartier_id: localisation.quartier_id,
+          numero_localite: localisation.numero_localite,
         };
         break;
 
@@ -998,22 +1295,22 @@ router.post('/usagers', async (req, res) => {
     const query = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders}) RETURNING id`;
     const result = await pool.query(query, values);
     const newId = result.rows[0].id;
-    
+
     if (userId) {
       const currentYear = new Date().getFullYear();
       const userIdInt = parseInt(userId);
-      
+
       let counterType = type;
       if (type === 'Grand Surface') counterType = 'Grand Surface';
       else if (type === 'Télé/Radio') counterType = 'Télé/Radio';
       else if (type === 'Night club') counterType = 'Night club';
-      
+
       let counterResult = await pool.query(
         `SELECT compteur, id FROM compteurs_dossiers_utilisateurs 
          WHERE utilisateur_id = $1 AND annee = $2 AND type_usager = $3`,
         [userIdInt, currentYear, counterType]
       );
-      
+
       let nouveauCompteur = 0;
       if (counterResult.rows.length > 0) {
         nouveauCompteur = counterResult.rows[0].compteur + 1;
@@ -1032,7 +1329,7 @@ router.post('/usagers', async (req, res) => {
           [userIdInt, currentYear, counterType]
         );
       }
-      
+
       if (type !== 'OCC') {
         const prefix = data.prefix || '';
         const trimestre = Math.ceil((new Date().getMonth() + 1) / 4);
@@ -1043,35 +1340,35 @@ router.post('/usagers', async (req, res) => {
         );
       }
     }
-    
+
     if (type === 'OCC') {
       const allArtists = [];
-      
+
       if (data.artistes && data.artistes.trim() !== '') {
         allArtists.push({ nom: data.artistes.trim(), prenom: '', role: 'Artiste principal' });
       }
-      
+
       if (data.otherArtistsDetail && Array.isArray(data.otherArtistsDetail) && data.otherArtistsDetail.length > 0) {
         for (const artist of data.otherArtistsDetail) {
           if (artist.nom && artist.nom.trim() !== '') {
-            allArtists.push({ 
-              nom: artist.nom.trim(), 
-              prenom: artist.prenom || '', 
-              role: artist.role || 'Artiste participant' 
+            allArtists.push({
+              nom: artist.nom.trim(),
+              prenom: artist.prenom || '',
+              role: artist.role || 'Artiste participant'
             });
           }
         }
       }
-      
+
       await pool.query(`DELETE FROM event_artistes WHERE event_id = $1`, [newId]);
-      
+
       for (const artist of allArtists) {
         let artisteId;
         const existingArtiste = await pool.query(
           'SELECT id FROM artistes WHERE LOWER(nom) = LOWER($1)',
           [artist.nom]
         );
-        
+
         if (existingArtiste.rows.length === 0) {
           const newArtiste = await pool.query(
             'INSERT INTO artistes (nom, prenom, role) VALUES ($1, $2, $3) RETURNING id',
@@ -1081,14 +1378,14 @@ router.post('/usagers', async (req, res) => {
         } else {
           artisteId = existingArtiste.rows[0].id;
         }
-        
+
         await pool.query(
           'INSERT INTO event_artistes (event_id, artiste_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
           [newId, artisteId]
         );
       }
     }
-    
+
     try {
       await pool.query(
         `INSERT INTO notifications (message, type, usager_id, created_at) 
@@ -1098,9 +1395,9 @@ router.post('/usagers', async (req, res) => {
     } catch (notifError) {
       console.log('⚠️ Erreur notification:', notifError.message);
     }
-    
+
     res.json({ success: true, id: newId, message: `${type} ajouté avec succès` });
-    
+
   } catch (error) {
     console.error('❌ Erreur ajout usager:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1176,16 +1473,17 @@ router.put('/usagers/other/:id', async (req, res) => {
 // ============================================================
 router.put('/usagers/:id', async (req, res) => {
   const { id } = req.params;
-  const { 
+  const {
     denomination, demandeur, telephone, email, region, type_usager, adresse,
-    confirmation_nom, representant_cin, representant_cin_delivree, 
-    representant_cin_lieu, representant_par, domicile, 
+    confirmation_nom, representant_cin, representant_cin_delivree,
+    representant_cin_lieu, representant_par, domicile,
     frais_dossier, montant_mensuel, uniter, etoiles, ravinala, activite,
     nombre_magasins, jauge_max, horaires, representant_nom, representant_adresse,
     representant_tel, representant_fonction, lieu_signature, date_signature,
     frequence, canal, siege, nif, stat, taux, nombre_vehicules,
     lignes, type_bus, trajet, organisateurs, representant_par_occ,
-    genre_manifestation, artistes, date_evenement, lieu_evenement, lieu_ajout
+    genre_manifestation, artistes, date_evenement, lieu_evenement, lieu_ajout,
+    region_id, ville_id, quartier_id, numero_localite
   } = req.body;
 
   if (!denomination) return res.status(400).json({ success: false, message: 'La dénomination est obligatoire' });
@@ -1207,20 +1505,21 @@ router.put('/usagers/:id', async (req, res) => {
     let paramIndex = 1;
     const commonFields = {
       denomination, demandeur, telephone, email, region,
-      confirmation_nom, representant_cin, 
+      confirmation_nom, representant_cin,
       representant_cin_delivree: toDate(representant_cin_delivree),
       representant_cin_lieu, representant_nom, representant_adresse,
-      representant_tel, representant_fonction, lieu_signature, 
+      representant_tel, representant_fonction, lieu_signature,
       date_signature: toDate(date_signature),
       frais_dossier, uniter, adresse_siege: adresse,
       etoiles, ravinala, activite, nombre_magasins, jauge_max, horaires,
       frequence, canal, siege, nif, stat, taux,
       nombre_vehicules, lignes, type_bus, trajet,
       organisateurs, representant_par: representant_par_occ,
-      genre_manifestation, artistes, 
-      date_evenement: toDate(date_evenement), 
+      genre_manifestation, artistes,
+      date_evenement: toDate(date_evenement),
       lieu_evenement, lieu_ajout,
-      domicile
+      domicile,
+      region_id, ville_id, quartier_id, numero_localite
     };
     if (typeValue !== 'OCC') {
       commonFields.montant_mensuel = montant_mensuel;
@@ -1232,6 +1531,8 @@ router.put('/usagers/:id', async (req, res) => {
           updateValues.push(parseFloat(value) || 0);
         } else if (key === 'nombre_magasins' || key === 'jauge_max' || key === 'nombre_vehicules') {
           updateValues.push(parseInt(value) || 0);
+        } else if (key === 'region_id' || key === 'ville_id' || key === 'quartier_id') {
+          updateValues.push(toId(value));
         } else {
           updateValues.push(value);
         }
@@ -1255,258 +1556,6 @@ router.put('/usagers/:id', async (req, res) => {
   } catch (error) {
     console.error('❌ Erreur modification usager:', error);
     res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// ============================================================
-// DELETE - Supprimer un usager PAR TYPE
-// ============================================================
-router.delete('/usagers/:type/:id', async (req, res) => {
-  const { type, id } = req.params;
-  
-  console.log(`🗑️ DELETE /usagers/${type}/${id}`);
-  
-  const typeMapping = {
-    'hotel': 'usagers_hotel',
-    'grand-surface': 'usagers_magasin',
-    'media': 'usagers_media',
-    'occ': 'usagers_occasionnel',
-    'bus': 'usagers_bus',
-    'nightclub': 'usagers_nightclub',
-    'other': 'usager_other'
-  };
-  
-  const typeNames = {
-    'hotel': 'Hôtel',
-    'grand-surface': 'Grand Surface',
-    'media': 'Télé/Radio',
-    'occ': 'OCC',
-    'bus': 'Bus',
-    'nightclub': 'Night club',
-    'other': 'Autre'
-  };
-  
-  const paiementTypes = {
-    'hotel': 'hotel',
-    'grand-surface': 'grand-surface',
-    'media': 'media',
-    'occ': 'occ',
-    'bus': 'bus',
-    'nightclub': 'nightclub',
-    'other': 'other'
-  };
-  
-  const tableName = typeMapping[type];
-  const typeName = typeNames[type];
-  const paiementType = paiementTypes[type];
-  
-  if (!tableName) {
-    return res.status(400).json({ success: false, message: 'Type invalide' });
-  }
-  
-  try {
-    const checkResult = await pool.query(`SELECT * FROM ${tableName} WHERE id = $1`, [id]);
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Usager non trouvé' });
-    }
-    
-    const usagerData = checkResult.rows[0];
-    const denomination = usagerData.denomination || usagerData.nom_evenement || 'Inconnu';
-    
-    await pool.query('BEGIN');
-    
-    try {
-      await pool.query(
-        `DELETE FROM paiements WHERE usager_id = $1 AND usager_type = $2`,
-        [id, paiementType]
-      );
-      
-      if (type === 'occ') {
-        await pool.query(`DELETE FROM event_artistes WHERE event_id = $1`, [id]);
-        await pool.query(`
-          DELETE FROM artistes a
-          WHERE NOT EXISTS (
-            SELECT 1 FROM event_artistes ea WHERE ea.artiste_id = a.id
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM usagers_occasionnel uo 
-            WHERE uo.artistes ILIKE '%' || a.nom || '%'
-          )
-        `);
-      }
-      
-      // ✅ Pour "other", suppression en cascade des lignes via ON DELETE CASCADE
-      await pool.query(
-        `DELETE FROM usagers_vus WHERE usager_id = $1 AND usager_type = $2`,
-        [id, paiementType]
-      );
-      
-      await pool.query(`DELETE FROM notifications WHERE usager_id = $1`, [id]);
-      await pool.query(`DELETE FROM delete_requests WHERE usager_id = $1`, [id]);
-      await pool.query(`DELETE FROM ${tableName} WHERE id = $1`, [id]);
-      
-      await pool.query('COMMIT');
-      console.log(`✅ Usager ${id} (${denomination}) supprimé avec succès`);
-      
-    } catch (dbError) {
-      await pool.query('ROLLBACK');
-      console.error('❌ Erreur DB:', dbError);
-      throw dbError;
-    }
-    
-    try {
-      const adminToken = req.headers.adminToken || req.headers['admintoken'];
-      let deletedBy = 'Administrateur';
-      let userId = 1;
-      
-      if (adminToken) {
-        const userResult = await pool.query(
-          `SELECT id, nom FROM utilisateurs WHERE role = 'super_admin' OR role = 'daf' LIMIT 1`
-        );
-        if (userResult.rows.length > 0) {
-          deletedBy = userResult.rows[0].nom;
-          userId = userResult.rows[0].id;
-        }
-      }
-      
-      await pool.query(
-        `INSERT INTO delete_history 
-         (usager_nom, usager_type, deleted_by, deleted_by_role, user_id, details, deleted_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-        [
-          denomination,
-          typeName,
-          deletedBy,
-          'admin',
-          userId,
-          JSON.stringify({
-            demandeur: usagerData.demandeur || usagerData.nom || 'Inconnu',
-            region: usagerData.region || 'Non spécifiée',
-            telephone: usagerData.telephone || 'Non spécifié',
-            uniter: usagerData.uniter || 1
-          })
-        ]
-      );
-    } catch (historyError) {
-      console.error('⚠️ Erreur historique:', historyError.message);
-    }
-    
-    res.json({ 
-      success: true, 
-      message: `Usager "${denomination}" supprimé avec succès` 
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur suppression:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Erreur lors de la suppression' 
-    });
-  }
-});
-
-// ============================================================
-// DELETE - Supprimer un usager (Route de fallback)
-// ============================================================
-router.delete('/usagers/:id', async (req, res) => {
-  const { id } = req.params;
-  const { type_usager } = req.query;
-  
-  try {
-    const tables = [
-      { name: 'usagers_hotel', type: 'Hôtel' },
-      { name: 'usagers_magasin', type: 'Grand Surface' },
-      { name: 'usagers_media', type: 'Télé/Radio' },
-      { name: 'usagers_occasionnel', type: 'OCC' },
-      { name: 'usagers_bus', type: 'Bus' },
-      { name: 'usagers_nightclub', type: 'Night club' },
-      { name: 'usager_other', type: 'Autre' }
-    ];
-    
-    let foundTable = null;
-    let usagerData = null;
-    
-    if (type_usager) {
-      const table = tables.find(t => t.type === type_usager);
-      if (table) {
-        const result = await pool.query(`SELECT * FROM ${table.name} WHERE id = $1`, [id]);
-        if (result.rows.length > 0) {
-          foundTable = table;
-          usagerData = result.rows[0];
-        }
-      }
-    }
-    
-    if (!foundTable) {
-      for (const table of tables) {
-        const result = await pool.query(`SELECT * FROM ${table.name} WHERE id = $1`, [id]);
-        if (result.rows.length > 0) {
-          foundTable = table;
-          usagerData = result.rows[0];
-          break;
-        }
-      }
-    }
-    
-    if (!foundTable || !usagerData) {
-      return res.status(404).json({ success: false, message: 'Usager non trouvé' });
-    }
-    
-    const denomination = usagerData.denomination || usagerData.nom_evenement || 'Inconnu';
-    const paiementTypes = {
-      'Hôtel': 'hotel',
-      'Grand Surface': 'grand-surface',
-      'Télé/Radio': 'media',
-      'OCC': 'occ',
-      'Bus': 'bus',
-      'Night club': 'nightclub',
-      'Autre': 'other'
-    };
-    const paiementType = paiementTypes[foundTable.type];
-    
-    await pool.query('BEGIN');
-    
-    try {
-      if (paiementType) {
-        await pool.query(
-          `DELETE FROM paiements WHERE usager_id = $1 AND usager_type = $2`,
-          [id, paiementType]
-        );
-      }
-      
-      if (foundTable.type === 'OCC') {
-        await pool.query(`DELETE FROM event_artistes WHERE event_id = $1`, [id]);
-      }
-      
-      if (paiementType) {
-        await pool.query(
-          `DELETE FROM usagers_vus WHERE usager_id = $1 AND usager_type = $2`,
-          [id, paiementType]
-        );
-      }
-      
-      await pool.query(`DELETE FROM notifications WHERE usager_id = $1`, [id]);
-      await pool.query(`DELETE FROM delete_requests WHERE usager_id = $1`, [id]);
-      await pool.query(`DELETE FROM ${foundTable.name} WHERE id = $1`, [id]);
-      
-      await pool.query('COMMIT');
-      
-      res.json({ 
-        success: true, 
-        message: `Usager "${denomination}" supprimé avec succès` 
-      });
-      
-    } catch (dbError) {
-      await pool.query('ROLLBACK');
-      throw dbError;
-    }
-    
-  } catch (error) {
-    console.error('❌ Erreur suppression:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Erreur lors de la suppression' 
-    });
   }
 });
 

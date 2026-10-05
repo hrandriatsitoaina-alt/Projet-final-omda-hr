@@ -1,3 +1,4 @@
+// src/components/Header.jsx
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   Home, LayoutDashboard, Users, CreditCard, Settings,
@@ -6,17 +7,13 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/App.css';
-// ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
 
 const Header = ({ onLogout, user }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
-
-  // ✅ LANGUE UNIQUE — vient du Context
   const { t } = useT();
 
-  // ✅ Items de navigation mémoïsés
   const navItems = useMemo(() => [
     { icon: Home,            label: t('Accueil',        'Fandraisana',   'Home'),       path: '/dashboard' },
     { icon: LayoutDashboard, label: t('Tableau de bord','Tabilao',       'Dashboard'),  path: '/tableau-db' },
@@ -25,7 +22,6 @@ const Header = ({ onLogout, user }) => {
     { icon: Settings,        label: t('Paramètres',     'Fandrindrana',  'Settings'),   path: '/Parametre_global' },
   ], [t]);
 
-  // ✅ Items du menu mobile
   const mobileItems = useMemo(() => [
     { icon: Home,            label: t('Accueil',        'Fandraisana',   'Home'),       path: '/dashboard' },
     { icon: LayoutDashboard, label: t('Tableau de bord','Tabilao',       'Dashboard'),  path: '/tableau-db' },
@@ -46,13 +42,31 @@ const Header = ({ onLogout, user }) => {
     setMenuOpen(false);
   }, [navigate]);
 
+  // ============================================================
+  // ✅ LOGOUT FLUIDE — navigation SPA sans rechargement de page
+  // ============================================================
   const handleLogout = useCallback(() => {
+    // 1. Nettoyage COMPLET du localStorage
+    try { localStorage.clear(); } catch (e) { /* ignore */ }
+
+    // 2. Nettoyage COMPLET du sessionStorage
+    try { sessionStorage.clear(); } catch (e) { /* ignore */ }
+
+    // 3. Marquer qu'on vient de se déconnecter (pour le nettoyage côté Auth)
+    try { sessionStorage.setItem('just_logged_out', 'true'); } catch (e) { /* ignore */ }
+
+    // 4. Callback parent si fourni
     if (onLogout) {
-      onLogout();
+      try { onLogout(); } catch (e) { console.warn(e); }
     }
-    navigate('/', { replace: true });
+
+    // 5. Fermer le menu mobile
     setMenuOpen(false);
-  }, [onLogout, navigate]);
+
+    // 6. ✅ Navigation SPA fluide avec resetKey → force le remontage d'Auth
+    //    PAS de window.location.href → pas de page blanche
+    navigate('/', { replace: true, state: { resetKey: Date.now() } });
+  }, [navigate, onLogout]);
 
   return (
     <header className="header">
@@ -85,7 +99,6 @@ const Header = ({ onLogout, user }) => {
 
         {/* Actions utilisateur */}
         <div className="header-actions">
-          {/* Bouton Assistant IA */}
           <button
             className="icon-btn"
             aria-label={t('Assistant IA', 'Mpanampy IA', 'AI Assistant')}
@@ -94,7 +107,6 @@ const Header = ({ onLogout, user }) => {
             <Bot size={22} />
           </button>
 
-          {/* Bouton Notifications */}
           <button
             className="icon-btn"
             aria-label={t('Notifications', 'Fampahafantarana', 'Notifications')}
@@ -103,7 +115,6 @@ const Header = ({ onLogout, user }) => {
             <Bell size={22} />
           </button>
 
-          {/* Bouton Profil */}
           <button
             className="icon-btn"
             aria-label={t('Profil', 'Momba ahy', 'Profile')}
@@ -112,16 +123,15 @@ const Header = ({ onLogout, user }) => {
             <UserCircle size={22} />
           </button>
 
-          {/* Bouton Déconnexion */}
           <button
             className="icon-btn logout-btn"
             onClick={handleLogout}
             aria-label={t('Déconnexion', 'Fivoahana', 'Logout')}
+            title={t('Se déconnecter', 'Hivoaka', 'Logout')}
           >
             <LogOut size={22} />
           </button>
 
-          {/* Menu hamburger pour mobile */}
           <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>
             {menuOpen ? <X size={28} /> : <Menu size={28} />}
           </button>
@@ -150,7 +160,6 @@ const Header = ({ onLogout, user }) => {
 
           <hr className="mobile-divider" />
 
-          {/* Actions du menu mobile */}
           {mobileActions.map((item, idx) => {
             const Icon = item.icon;
             return (
@@ -171,7 +180,6 @@ const Header = ({ onLogout, user }) => {
             );
           })}
 
-          {/* Bouton Déconnexion dans le menu mobile */}
           <button className="mobile-logout" onClick={handleLogout}>
             <LogOut size={20} /> {t('Déconnexion', 'Fivoahana', 'Logout')}
           </button>

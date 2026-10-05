@@ -807,6 +807,34 @@
   .toggle-password-btn svg {
     pointer-events: none;
   }
+
+  /* ============================================
+   ERREUR : MOTS DE PASSE NON IDENTIQUES
+   ============================================ */
+.password-mismatch-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: #fdecea;
+  color: #c0392b;
+  border-left: 3px solid #e74c3c;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  animation: fadeInError 0.25s ease;
+}
+
+.password-mismatch-error svg {
+  flex-shrink: 0;
+  color: #e74c3c;
+}
+
+@keyframes fadeInError {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 /* ============================================================
    RESPONSIVE
    ============================================================ */

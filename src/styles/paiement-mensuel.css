@@ -173,6 +173,7 @@
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s;
+  background: #ffffff;
 }
 
 .pm-type-option:hover {
@@ -218,6 +219,66 @@
   color: #495057;
 }
 
+/* ========== TYPE DAFC / SFL ========== */
+.pm-type-dafc-section {
+  background: #ffffff;
+}
+
+.pm-type-dafc-container {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.pm-type-dafc-option {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border: 2px solid #e9ecef;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #ffffff;
+}
+
+.pm-type-dafc-option:hover {
+  border-color: #ced4da;
+}
+
+.pm-type-dafc-option.active {
+  border-color: #0d6efd;
+  background: #f0f7ff;
+}
+
+.pm-type-dafc-option input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #0d6efd;
+  flex-shrink: 0;
+}
+
+.pm-type-dafc-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pm-type-dafc-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #212529;
+  letter-spacing: 0.5px;
+}
+
+.pm-type-dafc-desc {
+  font-size: 13px;
+  color: #6c757d;
+}
+
 /* ========== PAIEMENT GRID ========== */
 .pm-paiement-grid {
   display: grid;
@@ -247,6 +308,7 @@
   border-radius: 8px;
   font-size: 14px;
   transition: border-color 0.2s;
+  background: #ffffff;
 }
 
 .pm-form-group input:focus,
@@ -261,43 +323,39 @@
   color: #6c757d;
 }
 
+/* Astérisque obligatoire */
+.pm-required-star {
+  color: #dc3545;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* ✅ Input incomplet — simple bordure rouge */
+.pm-montant-input.pm-input-incomplete,
+.pm-frais-renouvellement-input.pm-input-incomplete {
+  border-color: #dc3545 !important;
+  border-width: 2px;
+}
+
+.pm-montant-input.pm-input-incomplete:focus,
+.pm-frais-renouvellement-input.pm-input-incomplete:focus {
+  border-color: #dc3545 !important;
+  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1);
+}
+
 /* ========== RENOUVELLEMENT ========== */
-.pm-renouvellement-group,
-.pm-renouvellement-facture-group {
+.pm-renouvellement-group {
   grid-column: span 2;
 }
 
-.pm-renouvellement-checkbox-label {
-  display: flex !important;
+.pm-renouvellement-direct-label {
+  display: flex;
   align-items: center;
   gap: 8px;
-  cursor: pointer;
-  font-weight: 600 !important;
-  font-size: 14px !important;
-  padding: 10px 14px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  border: 2px solid #e9ecef;
-  transition: all 0.2s;
-}
-
-.pm-renouvellement-checkbox-label:hover {
-  background: #f0f7ff;
-  border-color: #0d6efd;
-}
-
-.pm-renouvellement-checkbox-label input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: #e67e22;
-}
-
-.pm-renouvellement-input-wrapper {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e67e22;
+  margin-bottom: 4px;
 }
 
 .pm-frais-renouvellement-input {
@@ -574,10 +632,16 @@
   font-size: 13px;
 }
 
-/* ========== MOIS GRID ========== */
-.pm-mois-grid {
+/* ========== MOIS GRID : 6 en haut + 6 en bas ========== */
+.pm-mois-grid-2-lignes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pm-mois-grid-ligne {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(6, 1fr);
   gap: 12px;
 }
 
@@ -592,6 +656,21 @@
   border-radius: 10px;
   transition: all 0.2s;
   min-height: 110px;
+  z-index: 2;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pm-mois-item * {
+  pointer-events: none;
+}
+
+.pm-mois-item input,
+.pm-mois-item button,
+.pm-mois-item select {
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 10;
 }
 
 .pm-mois-item.disponible {
@@ -749,16 +828,6 @@
   color: #6c757d;
 }
 
-.pm-mois-click-area {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  cursor: pointer;
-  z-index: 1;
-}
-
 /* ========== PERSONNE ========== */
 .pm-personne-input {
   width: 100%;
@@ -853,6 +922,18 @@
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+/* ✅ Message d'avertissement simple */
+.pm-generate-simple-warning {
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: #fff8e1;
+  border: 1px solid #f0ad4e;
+  border-radius: 8px;
+  color: #8a6d3b;
+  font-size: 13px;
+  text-align: center;
 }
 
 /* ========== FACTURES GENEREES ========== */
@@ -973,18 +1054,6 @@
   color: #e67e22;
   padding: 2px 8px;
   background: #fffbf0;
-  border-radius: 10px;
-  font-weight: 600;
-}
-
-.pm-facture-renouvellement-facture {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: #6f42c1;
-  padding: 2px 8px;
-  background: #f3f0ff;
   border-radius: 10px;
   font-weight: 600;
 }
@@ -1176,13 +1245,19 @@
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  background: #fff3cd;
-  border: 1px solid #ffc107;
+  background: #e7f1ff;
+  border: 1px solid #b6d4fe;
+  border-left: 4px solid #0d6efd;
   border-radius: 8px;
   margin-bottom: 20px;
   font-size: 13px;
-  color: #856404;
+  color: #084298;
   font-weight: 500;
+}
+
+.pm-modal-info-renouvellement svg {
+  flex-shrink: 0;
+  color: #0d6efd;
 }
 
 .pm-modal-grid {
@@ -1212,6 +1287,8 @@
   border-radius: 6px;
   font-size: 14px;
   transition: border-color 0.2s;
+  background: #ffffff;
+  color: #212529;
 }
 
 .pm-modal-field input:focus,
@@ -1271,352 +1348,7 @@
   opacity: 0.7;
   cursor: not-allowed;
 }
-/* ========== RENOUVELLEMENT DE CONTRAT (Type C uniquement) ========== */
-.pm-renouvellement-group {
-  grid-column: span 2;
-}
 
-.pm-renouvellement-checkbox-label {
-  display: flex !important;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-weight: 600 !important;
-  font-size: 14px !important;
-  padding: 10px 14px;
-  background: #fffbf0;
-  border-radius: 8px;
-  border: 2px solid #f39c12;
-  transition: all 0.2s;
-}
-
-.pm-renouvellement-checkbox-label:hover {
-  background: #fff4e0;
-  border-color: #e67e22;
-}
-
-.pm-renouvellement-checkbox-label input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: #e67e22;
-}
-
-.pm-renouvellement-input-wrapper {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.pm-frais-renouvellement-input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 2px solid #f39c12;
-  border-radius: 6px;
-  font-size: 14px;
-  background: #fffbf0;
-  font-weight: 600;
-  color: #e67e22;
-  transition: all 0.2s;
-}
-
-.pm-frais-renouvellement-input:focus {
-  outline: none;
-  border-color: #e67e22;
-  box-shadow: 0 0 0 3px rgba(230, 126, 34, 0.15);
-  background: white;
-}
-
-.pm-renouvellement-hint {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #e67e22;
-  font-size: 12px;
-}
-
-.pm-facture-renouvellement {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: #e67e22;
-  padding: 2px 8px;
-  background: #fffbf0;
-  border-radius: 10px;
-  font-weight: 600;
-}
-
-/* ========== MODALE DE MODIFICATION ========== */
-.pm-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  padding: 20px;
-  animation: pmFadeIn 0.2s ease-out;
-}
-
-@keyframes pmFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.pm-modal-content {
-  background-color: #fff;
-  border-radius: 12px;
-  width: 100%;
-  max-width: 800px;
-  max-height: 90vh;
-  overflow: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  animation: pmModalSlideIn 0.3s ease-out;
-}
-
-@keyframes pmModalSlideIn {
-  from { opacity: 0; transform: translateY(-20px) scale(0.95); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.pm-modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid #eee;
-  position: sticky;
-  top: 0;
-  background-color: #fff;
-  z-index: 1;
-}
-
-.pm-modal-header h2 {
-  margin: 0;
-  font-size: 20px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #212529;
-}
-
-.pm-modal-close-btn {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  color: #999;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: background 0.2s;
-}
-
-.pm-modal-close-btn:hover {
-  background: #f1f3f5;
-  color: #495057;
-}
-
-.pm-modal-body {
-  padding: 24px;
-}
-
-.pm-modal-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.pm-modal-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.pm-modal-field label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #555;
-}
-
-.pm-modal-field input,
-.pm-modal-field select {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-  transition: border-color 0.2s;
-}
-
-.pm-modal-field input:focus,
-.pm-modal-field select:focus {
-  outline: none;
-  border-color: #3498db;
-  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
-}
-
-.pm-modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 16px 24px;
-  border-top: 1px solid #eee;
-  position: sticky;
-  bottom: 0;
-  background-color: #fff;
-}
-
-.pm-modal-btn-cancel {
-  padding: 10px 20px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  background-color: #fff;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.pm-modal-btn-cancel:hover {
-  background: #f8f9fa;
-}
-
-.pm-modal-btn-save {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
-  background-color: #27ae60;
-  color: #fff;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: background 0.2s;
-}
-
-.pm-modal-btn-save:hover:not(:disabled) {
-  background: #219653;
-}
-
-.pm-modal-btn-save:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-/* ========== BOUTON MODIFIER HEADER ========== */
-.pm-header-edit-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  background-color: #3498db;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: background 0.2s;
-}
-
-.pm-header-edit-btn:hover {
-  background-color: #2980b9;
-}
-/* ========== RENOUVELLEMENT DE CONTRAT (Type C) ========== */
-.pm-renouvellement-group {
-  grid-column: span 2;
-}
-
-.pm-renouvellement-direct-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #e67e22;
-  margin-bottom: 4px;
-}
-
-.pm-frais-renouvellement-input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 2px solid #f39c12;
-  border-radius: 6px;
-  font-size: 14px;
-  background: #fffbf0;
-  font-weight: 600;
-  color: #e67e22;
-  transition: all 0.2s;
-}
-
-.pm-frais-renouvellement-input:focus {
-  outline: none;
-  border-color: #e67e22;
-  box-shadow: 0 0 0 3px rgba(230, 126, 34, 0.15);
-  background: white;
-}
-
-.pm-renouvellement-hint {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #e67e22;
-  font-size: 12px;
-}
-
-/* Montant calculé automatiquement pour Type C */
-.pm-mois-montant-auto {
-  font-size: 12px;
-  font-weight: 600;
-  color: #0d6efd;
-  padding: 4px 6px;
-  text-align: center;
-  background: #f0f7ff;
-  border-radius: 6px;
-  margin: 4px 0;
-  width: 100%;
-}
-
-.pm-mois-item.selected .pm-mois-montant-auto {
-  color: #198754;
-  background: #f0fdf4;
-}
-
-/* Modale obligatoire */
-.pm-modal-obligatoire {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  padding: 4px 10px;
-  background: #fff3cd;
-  color: #856404;
-  border-radius: 10px;
-  font-weight: 600;
-  margin-left: 8px;
-}
-
-.pm-modal-info-renouvellement {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  background: #fff3cd;
-  border: 1px solid #ffc107;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  font-size: 13px;
-  color: #856404;
-  font-weight: 500;
-}
 /* ========== TYPE C : Sélecteur mois simplifié ========== */
 .pm-mois-selecteur-typeC {
   background: #fffbf0;
@@ -1636,196 +1368,72 @@
   font-weight: 600;
 }
 
-/* ========== Renouvellement direct ========== */
-.pm-renouvellement-group {
-  grid-column: span 2;
+/* ========== INPUT NUMBER SANS FLÈCHES SPINNER ========== */
+.pm-no-spinner::-webkit-outer-spin-button,
+.pm-no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
-.pm-renouvellement-direct-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #e67e22;
-  margin-bottom: 4px;
+.pm-no-spinner[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
-.pm-frais-renouvellement-input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 2px solid #f39c12;
-  border-radius: 6px;
-  font-size: 14px;
-  background: #fffbf0;
-  font-weight: 600;
-  color: #e67e22;
-  transition: all 0.2s;
-}
-
-.pm-frais-renouvellement-input:focus {
-  outline: none;
-  border-color: #e67e22;
-  box-shadow: 0 0 0 3px rgba(230, 126, 34, 0.15);
-  background: white;
-}
-
-.pm-renouvellement-hint {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #e67e22;
-  font-size: 12px;
-}
-/* ========== INPUT OBLIGATOIRE — FRAIS RENOUVELLEMENT ========== */
-.pm-frais-renouvellement-input.pm-input-error {
-  border-color: #dc3545 !important;
-  background: #fce4ec !important;
-  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1);
-}
-
-.pm-frais-renouvellement-input.pm-input-error:focus {
-  border-color: #dc3545 !important;
-  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.2);
-}
-
-.pm-frais-renouvellement-input.pm-input-valid {
-  border-color: #27ae60 !important;
-  background: #e8f5e9 !important;
-  color: #1b5e20;
-}
-
-.pm-hint-error {
-  color: #dc3545 !important;
-  font-weight: 600;
-}
-
-.pm-hint-valid {
-  color: #27ae60 !important;
-  font-weight: 600;
-}
-/* ========== GRILLE MOIS : 6 en haut + 6 en bas ========== */
-.pm-mois-grid-2-lignes {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.pm-mois-grid-ligne {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
-}
-
-.pm-mois-item {
-  position: relative;
-  z-index: 2;
-  cursor: pointer;
-  user-select: none;
-}
-
-/* ✅ Zone cliquable sur TOUT le mois (remplace .pm-mois-click-area) */
-.pm-mois-item * {
-  pointer-events: none;
-}
-
-.pm-mois-item input,
-.pm-mois-item button,
-.pm-mois-item select {
-  pointer-events: auto !important;
-  position: relative;
-  z-index: 10;
-}
-
-@media (max-width: 900px) {
-  .pm-mois-grid-ligne {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (max-width: 600px) {
-  .pm-mois-grid-ligne {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-/* ========== GRILLE MOIS : 6 en haut + 6 en bas ========== */
-.pm-mois-grid-2-lignes {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.pm-mois-grid-ligne {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
-}
-
-/* Responsive */
-@media (max-width: 900px) {
-  .pm-mois-grid-ligne {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (max-width: 600px) {
-  .pm-mois-grid-ligne {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-/* ========== WARNING SOUS LE BOUTON GÉNÉRER ========== */
-.pm-generate-warning {
-  display: flex;
+/* ========== BOUTON RETOUR VERS GERE-PAYER — BLEU CIEL, PETIT, À DROITE ========== */
+.pm-btn-retour-gere-payer-bas {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  margin-top: 12px;
-  padding: 10px 16px;
-  background: #fce4ec;
-  border: 1px solid #dc3545;
+  width: auto;
+  margin-top: 16px;
+  margin-left: auto;
+  padding: 10px 20px;
+  background: #87CEEB;
+  color: #ffffff;
+  border: none;
   border-radius: 8px;
-  color: #c62828;
   font-size: 13px;
   font-weight: 600;
-}
-/* ========== Modale obligatoire ========== */
-.pm-modal-obligatoire {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  padding: 4px 10px;
-  background: #fff3cd;
-  color: #856404;
-  border-radius: 10px;
-  font-weight: 600;
-  margin-left: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 3px 10px rgba(135, 206, 235, 0.35);
+  font-family: inherit;
 }
 
-.pm-modal-info-renouvellement {
+.pm-btn-retour-gere-payer-bas:hover {
+  background: #5DADE2;
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(93, 173, 226, 0.45);
+}
+
+.pm-btn-retour-gere-payer-bas:active {
+  transform: translateY(0);
+}
+
+.pm-btn-retour-gere-payer-bas svg {
+  transition: transform 0.3s ease;
+}
+
+.pm-btn-retour-gere-payer-bas:hover svg {
+  transform: translateX(-3px);
+}
+
+/* Container pour aligner le bouton à droite */
+.pm-factures-generees .pm-btn-retour-gere-payer-bas {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  background: #fff3cd;
-  border: 1px solid #ffc107;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  font-size: 13px;
-  color: #856404;
-  font-weight: 500;
+  margin-left: auto;
+  margin-right: 0;
 }
-/* ========== RESPONSIVE MODALE ========== */
-@media (max-width: 768px) {
-  .pm-modal-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .pm-renouvellement-group {
-    grid-column: span 1;
-  }
-}
+
 /* ========== RESPONSIVE ========== */
+@media (max-width: 900px) {
+  .pm-mois-grid-ligne {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 @media (max-width: 768px) {
   .paiement-mensuel-container {
     padding: 12px;
@@ -1846,14 +1454,9 @@
   }
 
   .pm-renouvellement-group,
-  .pm-renouvellement-facture-group,
   .pm-retard-group,
   .pm-total-group {
     grid-column: span 1;
-  }
-
-  .pm-mois-grid {
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   }
 
   .pm-quittance-input-group {
@@ -1873,11 +1476,19 @@
     min-width: unset;
   }
 
+  .pm-type-dafc-container {
+    flex-direction: column;
+  }
+
+  .pm-type-dafc-option {
+    min-width: unset;
+  }
+
   .pm-total-display {
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .pm-total-amount {
     font-size: 24px;
   }
@@ -1887,11 +1498,13 @@
   }
 }
 
-@media (max-width: 480px) {
-  .pm-mois-grid {
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+@media (max-width: 600px) {
+  .pm-mois-grid-ligne {
+    grid-template-columns: repeat(2, 1fr);
   }
+}
 
+@media (max-width: 480px) {
   .pm-mois-item {
     padding: 8px 4px;
     min-height: 90px;

@@ -26,20 +26,16 @@ import {
   BarChart3,
   TrendingUp,
   Eye,
-  AlertCircle
+  AlertCircle,
 } from 'lucide-react';
 import '../styles/notification_admin.css';
 import MiniSidebar from '../components/MiniSidebar';
-// ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
 
 const NotificationAdmin = () => {
   const navigate = useNavigate();
-
-  // ✅ LANGUE UNIQUE — vient du Context
   const { t, langue } = useT();
 
-  // ✅ Locale pour formatage
   const locale = useMemo(() => {
     if (langue === 'en') return 'en-US';
     if (langue === 'mg') return 'fr-MG';
@@ -51,24 +47,15 @@ const NotificationAdmin = () => {
   const [error, setError] = useState(null);
   const [token, setToken] = useState(null);
   const [allUsagers, setAllUsagers] = useState([]);
-  const [stats, setStats] = useState({
-    total: 0,
-    nonLues: 0,
-    modifications: 0,
-    suppressions: 0,
-    demandes: 0,
-  });
+  const [stats, setStats] = useState({ total: 0, nonLues: 0 });
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     let storedToken = localStorage.getItem('adminToken');
-    console.log('🔑 Token récupéré:', storedToken || 'Absent');
-
     if (!storedToken) {
       storedToken = 'super_admin_secret_2026';
       localStorage.setItem('adminToken', storedToken);
-      console.log('✅ Token par défaut créé');
     }
-
     setToken(storedToken);
     fetchAllUsagers(storedToken);
     fetchNotifications(storedToken);
@@ -78,77 +65,56 @@ const NotificationAdmin = () => {
   const fetchAllUsagers = async (currentToken) => {
     try {
       const response = await fetch('http://localhost:3001/api/usagers', {
-        headers: {
-          'adminToken': currentToken,
-          'Content-Type': 'application/json',
-        },
+        headers: { adminToken: currentToken, 'Content-Type': 'application/json' },
       });
       const data = await response.json();
-      if (Array.isArray(data)) {
-        setAllUsagers(data);
-        console.log('✅ Usagers chargés:', data.length);
-      }
+      if (Array.isArray(data)) setAllUsagers(data);
     } catch (error) {
       console.error('Erreur fetch usagers:', error);
     }
   };
 
-  const fetchNotifications = async (currentToken) => {
-    setLoading(true);
+  const fetchNotifications = async (currentToken, isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
     setError(null);
-    try {
-      console.log('📡 Récupération des notifications avec token:', currentToken);
 
+    try {
       const response = await fetch('http://localhost:3001/api/notifications', {
         method: 'GET',
-        headers: {
-          'adminToken': currentToken,
-          'Content-Type': 'application/json',
-        },
+        headers: { adminToken: currentToken, 'Content-Type': 'application/json' },
       });
-
-      console.log('📡 Statut réponse:', response.status);
 
       let data;
       if (response.status === 403) {
-        console.log('⚠️ Token invalide, essai sans token...');
         const retryResponse = await fetch('http://localhost:3001/api/notifications', {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         });
         data = await retryResponse.json();
       } else {
         data = await response.json();
       }
 
-      console.log('📋 Notifications reçues:', data);
-
       if (data.success) {
         const notifs = data.notifications || [];
         setNotifications(notifs);
-
         setStats({
           total: notifs.length,
           nonLues: notifs.filter(n => !n.read).length,
-          modifications: notifs.filter(n => n.type === 'update').length,
-          suppressions: notifs.filter(n => n.type === 'delete_completed').length,
-          demandes: notifs.filter(n => n.type === 'delete_request').length,
         });
-
         setError(null);
       } else {
-        console.error('❌ Erreur API:', data);
-        setError(data.message || t('Erreur de chargement', 'Nisy olana tamin\'ny fakana', 'Loading error'));
+        setError(data.message || t('Erreur de chargement', 'Nisy olana', 'Loading error'));
         setNotifications([]);
       }
     } catch (error) {
       console.error('❌ Erreur fetchNotifications:', error);
-      setError(t('Erreur de connexion au serveur', 'Nisy olana tamin\'ny fifandraisana', 'Server connection error'));
+      setError(t('Erreur de connexion au serveur', 'Nisy olana', 'Server error'));
       setNotifications([]);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -162,7 +128,7 @@ const NotificationAdmin = () => {
       await fetch(`http://localhost:3001/api/notifications/${id}/read`, {
         method: 'PUT',
         headers: {
-          'adminToken': token || 'super_admin_secret_2026',
+          adminToken: token || 'super_admin_secret_2026',
           'Content-Type': 'application/json',
         },
       });
@@ -182,7 +148,7 @@ const NotificationAdmin = () => {
 
   const getIcon = (type) => {
     switch (type) {
-      case 'delete_request': return <Trash2 size={20} />;
+      case 'delete_request':
       case 'delete_completed': return <Trash2 size={20} />;
       case 'delete_rejected': return <XCircle size={20} />;
       case 'update': return <Pencil size={20} />;
@@ -256,10 +222,11 @@ const NotificationAdmin = () => {
     <>
       <MiniSidebar />
       <main className="notification-admin-container">
+        {/* ========== HEADER ========== */}
         <div className="notification-admin-header">
           <div className="header-left">
             <h1>
-              <Bell size={24} style={{ marginRight: '10px', verticalAlign: 'middle' }} />
+              <Bell size={24} />
               {t('Centre de Notifications', 'Foibe fampandrenesana', 'Notification Center')}
             </h1>
             <p>
@@ -271,58 +238,55 @@ const NotificationAdmin = () => {
             </p>
           </div>
           <div className="header-right">
+            <button
+              className="btn-icon-header"
+              onClick={() => fetchNotifications(token, true)}
+              title={t('Actualiser', 'Havaozy', 'Refresh')}
+              disabled={refreshing}
+            >
+              <RefreshCw size={18} className={refreshing ? 'spin' : ''} />
+            </button>
+            {stats.nonLues > 0 && (
+              <button className="btn-header-action" onClick={markAllAsRead}>
+                <CheckCheck size={16} />
+                {t('Tout lire', 'Vakio ny rehetra', 'Read all')}
+              </button>
+            )}
             <button className="btn-back-dashboard" onClick={() => navigate('/dashboard')}>
-              <ArrowLeft size={18} style={{ marginRight: '6px' }} />
-              {t('Retour au Dashboard', 'Hiverina any amin\'ny Fandraisana', 'Back to Dashboard')}
+              <ArrowLeft size={18} />
+              {t('Accueil', 'Fandraisana', 'Dashboard')}
             </button>
           </div>
         </div>
 
-        {/* STATISTIQUES */}
-        <div className="notification-admin-stats">
-          <div className="stat-card">
-            <div className="stat-number">{stats.total}</div>
-            <div className="stat-label">{t('Total', 'Totaly', 'Total')}</div>
-          </div>
-          <div className="stat-card stat-unread">
-            <div className="stat-number">{stats.nonLues}</div>
-            <div className="stat-label">{t('Non lues', 'Tsy mbola vakiana', 'Unread')}</div>
-          </div>
-          <div className="stat-card stat-update">
-            <div className="stat-number">{stats.modifications}</div>
-            <div className="stat-label">{t('Modifications', 'Fanovana', 'Updates')}</div>
-          </div>
-          <div className="stat-card stat-delete">
-            <div className="stat-number">{stats.suppressions}</div>
-            <div className="stat-label">{t('Suppressions', 'Famafana', 'Deletions')}</div>
-          </div>
-          <div className="stat-card stat-request">
-            <div className="stat-number">{stats.demandes}</div>
-            <div className="stat-label">{t('Demandes', 'Fangatahana', 'Requests')}</div>
-          </div>
+        {/* ========== STATS SIMPLE ========== */}
+        <div className="notif-stats-simple">
+          <span className="stat-line">
+            <strong>{stats.total}</strong> {t('Total', 'Totaly', 'Total')}
+          </span>
+          <span className="stat-sep">·</span>
+          <span className="stat-line stat-unread">
+            <strong>{stats.nonLues}</strong> {t('Non lues', 'Tsy mbola vakiana', 'Unread')}
+          </span>
         </div>
 
-        {/* ACTIONS */}
-
-
-        {/* LISTE DES NOTIFICATIONS */}
+        {/* ========== LISTE ========== */}
         {error ? (
           <div className="notification-admin-error">
-            <p>
-              <AlertCircle size={18} style={{ marginRight: '8px' }} />
-              {error}
-            </p>
+            <AlertCircle size={40} className="error-icon" />
+            <p>{error}</p>
             <button className="btn-retry" onClick={() => fetchNotifications(token || 'super_admin_secret_2026')}>
+              <RefreshCw size={16} />
               {t('Réessayer', 'Andramo indray', 'Retry')}
             </button>
           </div>
         ) : notifications.length === 0 ? (
           <div className="notification-admin-empty">
-            <span className="empty-icon"><Inbox size={48} /></span>
+            <Inbox size={56} className="empty-icon" />
             <p>{t('Aucune notification', 'Tsy misy fampandrenesana', 'No notifications')}</p>
             <small>
               {t(
-                'Les modifications et suppressions apparaitront ici',
+                'Les modifications et suppressions apparaîtront ici',
                 'Hiseho eto ny fanovana sy famafana',
                 'Updates and deletions will appear here'
               )}
@@ -336,21 +300,24 @@ const NotificationAdmin = () => {
                 <div
                   key={notif.id}
                   className={`notification-item ${!notif.read ? 'unread' : ''}`}
-                  onClick={() => markAsRead(notif.id)}
+                  onClick={() => !notif.read && markAsRead(notif.id)}
                 >
-                  <div className="notif-icon">{getIcon(notif.type)}</div>
+                  <div className="notif-icon-wrap">{getIcon(notif.type)}</div>
+
                   <div className="notif-content">
                     <div className="notif-title">{notif.message}</div>
                     <div className="notif-meta">
                       <span className={`badge ${getTypeClass(notif.type)}`}>
                         {getTypeLabel(notif.type)}
                       </span>
-                      <span className="notif-date">
-                        {formatDate(notif.created_at)}
-                      </span>
+                      <span className="notif-date">{formatDate(notif.created_at)}</span>
+                      {!notif.read && (
+                        <span className="notif-unread-badge">
+                          <Eye size={11} /> {t('Nouveau', 'Vaovao', 'New')}
+                        </span>
+                      )}
                     </div>
 
-                    {/* DÉTAILS COMPLETS DE L'USAGER */}
                     {usager && (
                       <div className="usager-details-card">
                         <div className="usager-header-info">
@@ -361,51 +328,44 @@ const NotificationAdmin = () => {
                         <div className="usager-details-grid">
                           <div className="usager-detail-item">
                             <span className="detail-label">
-                              <Store size={14} style={{ marginRight: '4px' }} />
-                              {t('Dénomination:', 'Anarana:', 'Name:')}
+                              <Store size={13} /> {t('Dénomination', 'Anarana', 'Name')}
                             </span>
                             <span className="detail-value">{usager.denomination || 'N/A'}</span>
                           </div>
                           <div className="usager-detail-item">
                             <span className="detail-label">
-                              <User size={14} style={{ marginRight: '4px' }} />
-                              {t('Demandeur:', 'Mpanao fangatahana:', 'Applicant:')}
+                              <User size={13} /> {t('Demandeur', 'Mpangataka', 'Applicant')}
                             </span>
                             <span className="detail-value">{usager.demandeur || 'N/A'}</span>
                           </div>
                           <div className="usager-detail-item">
                             <span className="detail-label">
-                              <Phone size={14} style={{ marginRight: '4px' }} />
-                              {t('Téléphone:', 'Finday:', 'Phone:')}
+                              <Phone size={13} /> {t('Téléphone', 'Finday', 'Phone')}
                             </span>
                             <span className="detail-value">{usager.telephone || 'N/A'}</span>
                           </div>
                           <div className="usager-detail-item">
                             <span className="detail-label">
-                              <MailIcon size={14} style={{ marginRight: '4px' }} />
-                              {t('Email:', 'Mailaka:', 'Email:')}
+                              <MailIcon size={13} /> {t('Email', 'Mailaka', 'Email')}
                             </span>
                             <span className="detail-value">{usager.email || 'N/A'}</span>
                           </div>
                           <div className="usager-detail-item">
                             <span className="detail-label">
-                              <MapPin size={14} style={{ marginRight: '4px' }} />
-                              {t('Région:', 'Faritra:', 'Region:')}
+                              <MapPin size={13} /> {t('Région', 'Faritra', 'Region')}
                             </span>
                             <span className="detail-value">{usager.region || 'N/A'}</span>
                           </div>
                           <div className="usager-detail-item">
                             <span className="detail-label">
-                              <Home size={14} style={{ marginRight: '4px' }} />
-                              {t('Adresse:', 'Adiresy:', 'Address:')}
+                              <Home size={13} /> {t('Adresse', 'Adiresy', 'Address')}
                             </span>
                             <span className="detail-value">{usager.adresse || usager.adresse_siege || 'N/A'}</span>
                           </div>
                           {usager.frais_dossier > 0 && (
                             <div className="usager-detail-item">
                               <span className="detail-label">
-                                <DollarSign size={14} style={{ marginRight: '4px' }} />
-                                {t('Frais dossier:', 'Saram-pandraharahana:', 'File fees:')}
+                                <DollarSign size={13} /> {t('Frais dossier', 'Sara', 'File fees')}
                               </span>
                               <span className="detail-value">
                                 {usager.frais_dossier.toLocaleString(locale)} Ar
@@ -415,8 +375,7 @@ const NotificationAdmin = () => {
                           {usager.montant_mensuel > 0 && (
                             <div className="usager-detail-item">
                               <span className="detail-label">
-                                <BarChart3 size={14} style={{ marginRight: '4px' }} />
-                                {t('Montant mensuel:', 'Vola isam-bolana:', 'Monthly amount:')}
+                                <BarChart3 size={13} /> {t('Montant mensuel', 'Vola', 'Monthly')}
                               </span>
                               <span className="detail-value">
                                 {usager.montant_mensuel.toLocaleString(locale)} Ar
@@ -426,8 +385,7 @@ const NotificationAdmin = () => {
                           {usager.soit_total > 0 && (
                             <div className="usager-detail-item">
                               <span className="detail-label">
-                                <TrendingUp size={14} style={{ marginRight: '4px' }} />
-                                {t('Soit total:', 'Totaly:', 'Total:')}
+                                <TrendingUp size={13} /> {t('Soit total', 'Totaly', 'Total')}
                               </span>
                               <span className="detail-value">
                                 {usager.soit_total.toLocaleString(locale)} Ar
@@ -437,13 +395,9 @@ const NotificationAdmin = () => {
                         </div>
                       </div>
                     )}
-
-                    {!notif.read && (
-                      <div className="notif-unread-dot">
-                        <Eye size={12} />
-                      </div>
-                    )}
                   </div>
+
+                  {!notif.read && <div className="notif-unread-dot" />}
                 </div>
               );
             })}

@@ -7,27 +7,40 @@ const { pool } = require('../database');
 // HELPERS
 // ============================================================
 
-// ✅ Récupère le dernier numéro de quittance (table facture_usager)
-const getLastQuittanceNumber = async (client = pool) => {
+// ✅ Récupère le prochain numéro de quittance depuis quitance_usager
+const getNextQuittanceNumber = async (client = pool) => {
   try {
     const result = await client.query(`
-      SELECT MAX(quittance) as max_quittance 
-      FROM facture_usager 
-      WHERE quittance IS NOT NULL AND quittance > 0
+      SELECT num_quitance, longueur_format
+      FROM quitance_usager
+      ORDER BY id DESC
+      LIMIT 1
     `);
-    if (result.rows.length > 0 && result.rows[0].max_quittance !== null) {
-      return parseInt(result.rows[0].max_quittance, 10);
+
+    if (result.rows.length === 0) {
+      return { next: 1, longueur: 7, formate: '0000001' };
     }
-    return 0;
+
+    const dernier = parseInt(result.rows[0].num_quitance, 10) || 0;
+    const longueur = parseInt(result.rows[0].longueur_format, 10) || 7;
+    const next = dernier + 1;
+    const len = Math.max(longueur, String(next).length);
+
+    return {
+      next,
+      longueur: len,
+      formate: String(next).padStart(len, '0')
+    };
   } catch (error) {
     console.error('❌ Erreur récupération quittance:', error);
-    return 0;
+    return { next: 1, longueur: 7, formate: '0000001' };
   }
 };
 
-const formatQuittance = (num) => {
-  const n = parseInt(num, 10) || 0;
-  return String(n).padStart(7, '0');
+const formatQuittance = (num, longueur = 7) => {
+  const n = parseInt(num, 10) || 1;
+  const len = Math.max(longueur, String(n).length);
+  return String(n).padStart(len, '0');
 };
 
 // ✅ Récupère le nom du DAF
@@ -43,8 +56,23 @@ const getDAFName = async () => {
   }
 };
 
+// ✅ Mapping type_usager → ref_client_type
+const getRefClientType = (type) => {
+  const mapping = {
+    cd: 'CD',
+    mp3: 'MP3',
+    'oeuvre-web': 'WEB',
+    hologramme: 'HOL',
+    video: 'VID',
+    autre: 'AUT',
+  };
+  return mapping[type] || 'OTH';
+};
+
 // ============================================================
-// POST - Créer un usager_other + paiement + facture (TOUT EN UN)
+// POST - Créer un usager_other + paiement + facture + QUITTANCE
+//        ⚠️ IMPORTANT : La quittance est maintenant créée
+//        dans la table quitance_usager (relation 1:1 avec facture)
 // ============================================================
 router.post('/other-usagers/creer-complet', async (req, res) => {
   const client = await pool.connect();
@@ -87,16 +115,24 @@ router.post('/other-usagers/creer-complet', async (req, res) => {
       });
     }
 
-    // ✅ Quittance : utiliser celle fournie OU prendre la suivante
-    let nextQuittance = frontQuittance
-      ? parseInt(String(frontQuittance).replace(/\D/g, ''), 10)
-      : (await getLastQuittanceNumber(client) + 1);
+    // ✅ Déterminer le numéro de quittance
+    let nextQuittance;
+    let longueurQuittance = 7;
 
-    if (!nextQuittance || isNaN(nextQuittance)) {
-      nextQuittance = (await getLastQuittanceNumber(client)) + 1;
+    if (frontQuittance) {
+      const numStr = String(frontQuittance).replace(/\D/g, '');
+      const num = parseInt(numStr, 10) || 1;
+      longueurQuittance = Math.max(numStr.length, 7);
+      nextQuittance = num;
+    } else {
+      const q = await getNextQuittanceNumber(client);
+      nextQuittance = q.next;
+      longueurQuittance = q.longueur;
     }
 
-    // ✅ 1. Insérer dans usager_other
+    console.log(`📝 Quittance: ${nextQuittance} (format: ${formatQuittance(nextQuittance, longueurQuittance)})`);
+
+    // ✅ 1. Insérer dans usager_other (SANS quittance car elle est dans quitance_usager)
     const insertUsager = await client.query(`
       INSERT INTO usager_other (
         type_usager, denomination, nom, prenom, telephone, email, adresse, region,
@@ -125,8 +161,8 @@ router.post('/other-usagers/creer-complet', async (req, res) => {
       representant?.cinLieu || null,
       representant?.contact || null,
       paiement.mode,
-      nextQuittance,
-      true, // ✅ quittance validée automatiquement
+      nextQuittance,       // garde une trace dans usager_other
+      true,
       personneRecu || null,
       null,
       null,
@@ -136,7 +172,7 @@ router.post('/other-usagers/creer-complet', async (req, res) => {
     const usagerOtherId = insertUsager.rows[0].id;
     console.log(`✅ usager_other créé, ID: ${usagerOtherId}`);
 
-    // ✅ 2. Insérer les lignes (RAKOTONAIVO, WEB, CD...)
+    // ✅ 2. Insérer les lignes
     let totalLignes = 0;
     for (let i = 0; i < paiement.lignes.length; i++) {
       const l = paiement.lignes[i];
@@ -163,10 +199,9 @@ router.post('/other-usagers/creer-complet', async (req, res) => {
     const isRetard = paiement.is_retard || false;
     const soitTotal = totalLignes + fraisDossier + (isRetard ? montantRetard : 0);
 
-    const typePaiement = paiement.mode; // 'mensuel' ou 'unique'
+    const typePaiement = paiement.mode;
 
     if (typePaiement === 'unique') {
-      // ✅ Paiement unique (comme OCC)
       await client.query(`
         INSERT INTO paiements 
         (usager_id, usager_type, type_paiement, montant, date_paiement, statut,
@@ -182,7 +217,6 @@ router.post('/other-usagers/creer-complet', async (req, res) => {
       ]);
       console.log('✅ Paiement unique enregistré');
     } else {
-      // ✅ Paiement mensuel
       const annee = new Date().getFullYear();
       const mois = new Date().getMonth() + 1;
       await client.query(`
@@ -203,21 +237,20 @@ router.post('/other-usagers/creer-complet', async (req, res) => {
       console.log(`✅ Paiement mensuel enregistré (${mois}/${annee})`);
     }
 
-    // ✅ 4. Créer la facture dans facture_usager
+    // ✅ 4. Créer la facture dans facture_usager (SANS colonnes quittance !)
     const refResult = await client.query(
       `SELECT COALESCE(MAX(ref_omda), 0) + 1 AS new_ref FROM facture_usager`
     );
     const newRefOmda = refResult.rows[0].new_ref;
-
     const numFacture = String(newRefOmda).padStart(4, '0');
-    const typeMapping = { cd: 'CD', mp3: 'MP3', 'oeuvre-web': 'WEB', hologramme: 'HOL', video: 'VID', autre: 'AUT' };
-    const refClientType = typeMapping[type] || 'OTH';
+    const refClientType = getRefClientType(type);
 
-    // ✅ Construire la description personnalisée (pour PDF)
+    // ✅ Description personnalisée
     const descriptionPersonnalisee = paiement.lignes.map(l =>
       `${l.description} (U:${l.uniter} × ${parseFloat(l.pu).toLocaleString()} Ar = ${(parseFloat(l.pu) * parseInt(l.uniter)).toLocaleString()} Ar)`
     ).join('\n');
 
+    // ⚠️ SUPPRESSION des colonnes quittance et quittance_validee de l'INSERT
     const insertFacture = await client.query(`
       INSERT INTO facture_usager (
         ref_omda, num_facture, num_facture_type, ref_client_type,
@@ -225,7 +258,7 @@ router.post('/other-usagers/creer-complet', async (req, res) => {
         denomination, demandeur, telephone, email, adresse,
         representant_nom, representant_cin, representant_cin_delivree, representant_cin_lieu, representant_tel,
         montant_mensuel, frais_dossier, montant_retard, is_retard, soit_total, uniter,
-        quittance, quittance_validee, personne_recu,
+        personne_recu,
         description_personnalisee,
         statut, created_by, mois_facture, annee_facture,
         numero_dossier_utilisateur, numero_dossier_global
@@ -235,10 +268,10 @@ router.post('/other-usagers/creer-complet', async (req, res) => {
         $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15,
         $16, $17, $18, $19, $20, $21,
-        $22, $23, $24,
-        $25,
-        'validee', $26, $27, $28,
-        $29, $30
+        $22,
+        $23,
+        'validee', $24, $25, $26,
+        $27, $28
       ) RETURNING id, ref_omda, num_facture
     `, [
       newRefOmda,
@@ -247,7 +280,7 @@ router.post('/other-usagers/creer-complet', async (req, res) => {
       usagerOtherId,
       identification.region || '',
       identification.denomination,
-      identification.denomination, // demandeur = denomination par défaut
+      identification.denomination,
       identification.telephone || '',
       identification.email || '',
       identification.adresse || '',
@@ -256,14 +289,12 @@ router.post('/other-usagers/creer-complet', async (req, res) => {
       representant?.cinDelivree || null,
       representant?.cinLieu || '',
       representant?.contact || '',
-      totalLignes, // montant_mensuel = total des lignes
+      totalLignes,
       fraisDossier,
       isRetard ? montantRetard : 0,
       isRetard,
       soitTotal,
-      1, // uniter global
-      nextQuittance,
-      true,
+      1,
       personneRecu || '',
       descriptionPersonnalisee,
       userId || null,
@@ -276,19 +307,40 @@ router.post('/other-usagers/creer-complet', async (req, res) => {
     const factureId = insertFacture.rows[0].id;
     console.log(`✅ Facture créée, ID: ${factureId}`);
 
-    // ✅ Récupérer le nom du DAF
+    // ✅ 5. CRÉER LA QUITTANCE dans quitance_usager (relation 1:1)
+    const quittanceFormate = formatQuittance(nextQuittance, longueurQuittance);
+
+    await client.query(`
+      INSERT INTO quitance_usager (
+        id_facture, num_quitance, num_quitance_formate,
+        longueur_format, quittance_validee, personne_recu, created_by
+      )
+      VALUES ($1, $2, $3, $4, TRUE, $5, $6)
+      ON CONFLICT (id_facture) DO NOTHING
+    `, [
+      factureId,
+      nextQuittance,
+      quittanceFormate,
+      longueurQuittance,
+      personneRecu || null,
+      userId || null
+    ]);
+
+    console.log(`✅ Quittance ${quittanceFormate} créée pour facture ${factureId}`);
+
+    // ✅ 6. Récupérer le DAF
     const dafName = await getDAFName();
 
     await client.query('COMMIT');
 
     res.json({
       success: true,
-      message: 'Usager événementiel, paiement et facture créés avec succès',
+      message: 'Usager événementiel, paiement, facture et quittance créés',
       usagerOtherId,
       factureId,
       refOmda: newRefOmda,
       numFacture,
-      quittance: formatQuittance(nextQuittance),
+      quittance: quittanceFormate,
       quittanceNumber: nextQuittance,
       soitTotal,
       dafName,
@@ -353,17 +405,16 @@ router.get('/other-usagers', async (req, res) => {
 });
 
 // ============================================================
-// GET - Dernier numéro de quittance (pour le front)
+// GET - Dernier numéro de quittance
 // ============================================================
 router.get('/other-usagers/quittance/last', async (req, res) => {
   try {
-    const lastNum = await getLastQuittanceNumber();
-    const nextNum = lastNum + 1;
+    const q = await getNextQuittanceNumber();
     res.json({
       success: true,
-      lastQuittance: lastNum,
-      nextQuittance: formatQuittance(nextNum),
-      nextQuittanceNumber: nextNum
+      lastQuittance: q.next - 1,
+      nextQuittance: q.formate,
+      nextQuittanceNumber: q.next
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -384,8 +435,12 @@ router.get('/other-usagers/facture/:id', async (req, res) => {
           'pu', ol.pu,
           'montant', ol.montant
         ) ORDER BY ol.ordre)
-        FROM other_lignes ol WHERE ol.usager_other_id = fu.ref_usager) AS lignes
+        FROM other_lignes ol WHERE ol.usager_other_id = fu.ref_usager) AS lignes,
+        q.num_quitance_formate AS quittance_formate,
+        q.quittance_validee,
+        q.personne_recu AS quittance_personne_recu
       FROM facture_usager fu
+      LEFT JOIN quitance_usager q ON q.id_facture = fu.id
       WHERE fu.id = $1
     `, [id]);
 
@@ -396,7 +451,7 @@ router.get('/other-usagers/facture/:id', async (req, res) => {
     const dafName = await getDAFName();
     const facture = result.rows[0];
     facture.daf_nom = dafName;
-    if (facture.quittance) facture.quittance = formatQuittance(facture.quittance);
+    if (facture.quittance_formate) facture.quittance = facture.quittance_formate;
 
     res.json({ success: true, facture });
   } catch (error) {

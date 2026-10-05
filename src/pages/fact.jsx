@@ -9,17 +9,15 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-// ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
 import '../styles/facture_conf.css';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
 const Fact = () => {
   const navigate = useNavigate();
-
-  // ✅ LANGUE UNIQUE
   const { t, langue } = useT();
 
-  // ✅ Locale pour formatage
   const locale = useMemo(() => {
     if (langue === 'en') return 'en-US';
     if (langue === 'mg') return 'fr-MG';
@@ -27,6 +25,7 @@ const Fact = () => {
   }, [langue]);
 
   const [factures, setFactures] = useState([]);
+  const [paiements, setPaiements] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [vue, setVue] = useState('historique');
@@ -42,8 +41,93 @@ const Fact = () => {
   const [regionsDisponibles, setRegionsDisponibles] = useState([]);
   const [anneesDisponibles, setAnneesDisponibles] = useState([]);
 
-  const API_BASE = 'http://localhost:3001/api/recfacture';
+  const API_BASE = `${API_URL}/api/recfacture`;
 
+  // ============================================================
+  // HELPER : Type client → clé usager_type
+  // ============================================================
+  const refClientTypeToUsagerType = (refClientType) => {
+    const map = {
+      'HTL': 'hotel',
+      'MGS': 'grand-surface',
+      'RDP': 'media',
+      'TRP': 'bus',
+      'NGT': 'nightclub',
+      'OCC': 'occ',
+      'OTH': 'other',
+      'AUT': 'other',
+    };
+    return map[refClientType] || null;
+  };
+
+  // ============================================================
+  // ✅ HELPER : Calcul du taux d'un usager
+  //    = paiements payés / (12 - mois de création + 1) × 100
+  //    - Ne dépasse JAMAIS 100 %
+  //    - Retourne 0 si aucun paiement
+  // ============================================================
+  const calcTauxUsager = useCallback((facture) => {
+    if (!facture) return 0;
+
+    const usagerType = refClientTypeToUsagerType(facture.ref_client_type);
+    if (!usagerType) return 0;
+
+    const usagerId = facture.ref_usager;
+    if (!usagerId) return 0;
+
+    const paiementsUsager = paiements.filter(
+      (p) =>
+        p.usager_id === usagerId &&
+        p.usager_type === usagerType &&
+        p.statut === 'paye'
+    );
+
+    if (paiementsUsager.length === 0) return 0;
+
+    const anneeRef = parseInt(facture.annee_facture) || new Date().getFullYear();
+    const anneeCreation =
+      facture.created_at ? new Date(facture.created_at).getFullYear() : anneeRef;
+    const moisCreation =
+      facture.created_at ? new Date(facture.created_at).getMonth() + 1 : 1;
+
+    let moisDebut = 1;
+    if (anneeRef === anneeCreation) moisDebut = moisCreation;
+    const moisAttendus = 12 - moisDebut + 1;
+
+    const moisPayesSet = new Set();
+    for (const p of paiementsUsager) {
+      if (p.annee === anneeRef && p.mois && p.mois >= moisDebut) {
+        moisPayesSet.add(p.mois);
+      }
+    }
+
+    let moisPayes = moisPayesSet.size;
+    if (moisPayes === 0) {
+      const fallbackSet = new Set();
+      for (const p of paiementsUsager) {
+        if (p.mois) fallbackSet.add(`${p.annee || anneeRef}_${p.mois}`);
+      }
+      moisPayes = fallbackSet.size;
+    }
+
+    if (moisAttendus <= 0) return 0;
+
+    const taux = (moisPayes / moisAttendus) * 100;
+    return Math.min(100, Math.round(taux * 100) / 100);
+  }, [paiements]);
+
+  // ============================================================
+  // ✅ HELPER : Format du taux → "XX.XX %"
+  // ============================================================
+  const formatTaux = useCallback((taux) => {
+    const n = parseFloat(taux);
+    if (isNaN(n)) return '0.00 %';
+    return `${n.toFixed(2)} %`;
+  }, []);
+
+  // ============================================================
+  // FETCH DAF
+  // ============================================================
   useEffect(() => {
     const fetchDafName = async () => {
       try {
@@ -56,7 +140,13 @@ const Fact = () => {
     fetchDafName();
   }, []);
 
-  useEffect(() => { fetchFactures(); // eslint-disable-next-line
+  // ============================================================
+  // FETCH FACTURES + PAIEMENTS
+  // ============================================================
+  useEffect(() => {
+    fetchFactures();
+    fetchPaiements();
+    // eslint-disable-next-line
   }, []);
 
   useEffect(() => {
@@ -86,9 +176,10 @@ const Fact = () => {
           const numA = a.num_facture || a.ref_omda || '';
           const numB = b.num_facture || b.ref_omda || '';
           const parseNumFacture = (str) => {
-            const match = str.match(/^(\d+)(?:-([A-Za-z]))?$/);
+            const s = String(str || '');
+            const match = s.match(/^(\d+)(?:-([A-Za-z]))?$/);
             if (match) return { num: parseInt(match[1]), suffix: match[2] || '' };
-            return { num: parseInt(str) || 0, suffix: '' };
+            return { num: parseInt(s) || 0, suffix: '' };
           };
           const parsedA = parseNumFacture(numA);
           const parsedB = parseNumFacture(numB);
@@ -124,9 +215,32 @@ const Fact = () => {
     }
   };
 
+  const fetchPaiements = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/paiements/tous`);
+      if (response.data.success) {
+        setPaiements(response.data.paiements || []);
+        console.log(`✅ ${response.data.paiements?.length || 0} paiements chargés`);
+      }
+    } catch (err) {
+      console.error('❌ Erreur chargement paiements:', err.message);
+      setPaiements([]);
+    }
+  };
+
   const handleBackToDashboard = () => navigate('/dashboard');
 
-  const formatQuittance = (num) => (!num && num !== 0) ? '' : String(num).padStart(7, '0');
+  // ============================================================
+  // FORMATTERS
+  // ============================================================
+  const formatQuittance = (num) => {
+    if (num === null || num === undefined || num === '') return '';
+    const str = String(num);
+    if (/^\d{7,}$/.test(str)) return str;
+    const clean = str.replace(/\D/g, '');
+    if (!clean) return '';
+    return clean.padStart(7, '0');
+  };
 
   const formatMontant = useCallback((m) => {
     if (!m && m !== 0) return '0';
@@ -142,7 +256,6 @@ const Fact = () => {
     } catch { return ''; }
   }, [locale]);
 
-  // ✅ Mois traduits (mémoïsés)
   const moisLabels = useMemo(() => {
     if (langue === 'en') {
       return ['January', 'February', 'March', 'April', 'May', 'June',
@@ -173,14 +286,14 @@ const Fact = () => {
   const filteredFactures = factures.filter(f => {
     const search = searchTerm.toLowerCase();
     const matchSearch = (
-      (f.num_facture && f.num_facture.toLowerCase().includes(search)) ||
-      (f.denomination && f.denomination.toLowerCase().includes(search)) ||
-      (f.demandeur && f.demandeur.toLowerCase().includes(search)) ||
+      (f.num_facture && String(f.num_facture).toLowerCase().includes(search)) ||
+      (f.denomination && String(f.denomination).toLowerCase().includes(search)) ||
+      (f.demandeur && String(f.demandeur).toLowerCase().includes(search)) ||
       (f.quittance && String(f.quittance).includes(search)) ||
       (f.ref_omda && String(f.ref_omda).includes(search)) ||
-      (f.ref_client_type && f.ref_client_type.toLowerCase().includes(search)) ||
-      (f.nif && f.nif.toLowerCase().includes(search)) ||
-      (f.stat && f.stat.toLowerCase().includes(search))
+      (f.ref_client_type && String(f.ref_client_type).toLowerCase().includes(search)) ||
+      (f.nif && String(f.nif).toLowerCase().includes(search)) ||
+      (f.stat && String(f.stat).toLowerCase().includes(search))
     );
     if (!matchSearch) return false;
     if (filtreRegion && (!f.region_usager || f.region_usager !== filtreRegion)) return false;
@@ -210,6 +323,9 @@ const Fact = () => {
     return numbers;
   };
 
+  // ============================================================
+  // HEADER
+  // ============================================================
   const renderHeader = () => (
     <div className="fact-header">
       <div className="fact-header-top">
@@ -300,6 +416,9 @@ const Fact = () => {
     </div>
   );
 
+  // ============================================================
+  // HISTORIQUE
+  // ============================================================
   const renderHistorique = () => (
     <div className="fact-historique">
       <div className="fact-table-wrapper">
@@ -314,19 +433,20 @@ const Fact = () => {
               <th className="fact-col-date"><Calendar size={14} /> {t('DATE', 'DATY', 'DATE')}</th>
               <th className="fact-col-paiement"><CheckCircle size={14} /> {t('PAIEMENT', 'FANDOAVANA', 'PAYMENT')}</th>
               <th className="fact-col-quittance"><Tag size={14} /> {t('QUITTANCE', 'TARATASY', 'RECEIPT')}</th>
+              <th className="fact-col-taux"><Percent size={14} /> {t('TAUX', 'TAUX', 'RATE')}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="8" className="fact-loading-cell">
+                <td colSpan="9" className="fact-loading-cell">
                   <div className="fact-spinner"></div>
                   {t('Chargement des factures...', 'Maka ny faktiora...', 'Loading invoices...')}
                 </td>
               </tr>
             ) : paginatedFactures.length === 0 ? (
               <tr>
-                <td colSpan="8" className="fact-empty-cell">
+                <td colSpan="9" className="fact-empty-cell">
                   <FileText size={32} />
                   <p>{t('Aucune facture trouvée', 'Tsy misy faktiora hita', 'No invoice found')}</p>
                   <button className="fact-btn-retry" onClick={fetchFactures}>
@@ -340,6 +460,8 @@ const Fact = () => {
                 const refClient = facture.ref_client_type || '';
                 const refUsager = facture.ref_usager || '';
                 const clientRef = refClient && refUsager ? `${refClient}/${String(refUsager).padStart(3, '0')}` : '-';
+
+                const taux = calcTauxUsager(facture);
 
                 return (
                   <tr
@@ -361,6 +483,12 @@ const Fact = () => {
                       )}
                     </td>
                     <td className="fact-col-quittance">{formatQuittance(facture.quittance)}</td>
+                    {/* ✅ PAS d'icône <Percent /> à l'intérieur — le formatTaux inclut déjà "%" */}
+                    <td className="fact-col-taux">
+                      <span className={`fact-taux-badge ${taux >= 100 ? 'taux-full' : taux > 0 ? 'taux-partial' : 'taux-zero'}`}>
+                        {formatTaux(taux)}
+                      </span>
+                    </td>
                   </tr>
                 );
               })
@@ -396,12 +524,15 @@ const Fact = () => {
         <button className="fact-btn-back" onClick={handleBackToDashboard}>
           <ArrowLeft size={18} />
           <Home size={18} />
-          <span>{t('Retour au Dashboard', 'Hiverina amin\'ny Tabilao', 'Back to Dashboard')}</span>
+          <span>{t('Accueil', 'Hiverina amin\'ny Tabilao', 'Back to Dashboard')}</span>
         </button>
       </div>
     </div>
   );
 
+  // ============================================================
+  // CHECKLIST
+  // ============================================================
   const renderChecklist = () => (
     <div className="fact-checklist">
       <div className="fact-checklist-header">
@@ -427,46 +558,56 @@ const Fact = () => {
             </button>
           </div>
         ) : (
-          filteredFactures.slice(0, 100).map((facture, index) => (
-            <div
-              key={facture.id}
-              className={`fact-checklist-item ${factureSelectionnee?.id === facture.id ? 'selected' : ''}`}
-              onClick={() => handleSelectFacture(facture)}
-            >
-              <div className="fact-checklist-num">{String(index + 1).padStart(3, '0')}</div>
-              <div className="fact-checklist-content">
-                <div>
-                  <span className="label"><FileText size={12} /> {t('N° Facture', 'N° Faktiora', 'Invoice N°')}:</span>
-                  <span className="value">{facture.num_facture || facture.ref_omda || '-'}</span>
-                </div>
-                <div>
-                  <span className="label"><User size={12} /> {t('Client', 'Mpanjifa', 'Client')}:</span>
-                  <span className="value">{facture.denomination || facture.demandeur || '-'}</span>
-                </div>
-                <div>
-                  <span className="label"><DollarSign size={12} /> {t('Montant', 'Vola', 'Amount')}:</span>
-                  <span className="value">{formatMontant(facture.soit_total)} Ar</span>
-                </div>
-                <div>
-                  <span className="label"><Tag size={12} /> {t('Quittance', 'Taratasy', 'Receipt')}:</span>
-                  <span className="value">{formatQuittance(facture.quittance)}</span>
-                </div>
-                <div>
-                  <span className="label"><Calendar size={12} /> {t('Date', 'Daty', 'Date')}:</span>
-                  <span className="value">{formatDate(facture.date_ajout)}</span>
-                </div>
-                <div className="fact-checklist-statut">
-                  <span className={`fact-statut-badge ${facture.statut}`}>
-                    {facture.statut === 'validee' ? (
-                      <><CheckCircle size={12} /> {t('Validée', 'Voamarina', 'Validated')}</>
-                    ) : (
-                      <><Clock size={12} /> {t('En attente', 'Miandry', 'Pending')}</>
-                    )}
-                  </span>
+          filteredFactures.slice(0, 100).map((facture, index) => {
+            const taux = calcTauxUsager(facture);
+            return (
+              <div
+                key={facture.id}
+                className={`fact-checklist-item ${factureSelectionnee?.id === facture.id ? 'selected' : ''}`}
+                onClick={() => handleSelectFacture(facture)}
+              >
+                <div className="fact-checklist-num">{String(index + 1).padStart(3, '0')}</div>
+                <div className="fact-checklist-content">
+                  <div>
+                    <span className="label"><FileText size={12} /> {t('N° Facture', 'N° Faktiora', 'Invoice N°')}:</span>
+                    <span className="value">{facture.num_facture || facture.ref_omda || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="label"><User size={12} /> {t('Client', 'Mpanjifa', 'Client')}:</span>
+                    <span className="value">{facture.denomination || facture.demandeur || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="label"><DollarSign size={12} /> {t('Montant', 'Vola', 'Amount')}:</span>
+                    <span className="value">{formatMontant(facture.soit_total)} Ar</span>
+                  </div>
+                  <div>
+                    <span className="label"><Tag size={12} /> {t('Quittance', 'Taratasy', 'Receipt')}:</span>
+                    <span className="value">{formatQuittance(facture.quittance)}</span>
+                  </div>
+                  <div>
+                    <span className="label"><Calendar size={12} /> {t('Date', 'Daty', 'Date')}:</span>
+                    <span className="value">{formatDate(facture.date_ajout)}</span>
+                  </div>
+                  {/* ✅ PAS d'icône <Percent /> dans le badge */}
+                  <div>
+                    <span className="label"><Percent size={12} /> {t('Taux', 'Taux', 'Rate')}:</span>
+                    <span className={`fact-taux-badge ${taux >= 100 ? 'taux-full' : taux > 0 ? 'taux-partial' : 'taux-zero'}`}>
+                      {formatTaux(taux)}
+                    </span>
+                  </div>
+                  <div className="fact-checklist-statut">
+                    <span className={`fact-statut-badge ${facture.statut}`}>
+                      {facture.statut === 'validee' ? (
+                        <><CheckCircle size={12} /> {t('Validée', 'Voamarina', 'Validated')}</>
+                      ) : (
+                        <><Clock size={12} /> {t('En attente', 'Miandry', 'Pending')}</>
+                      )}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
       {filteredFactures.length > 100 && (
@@ -485,9 +626,13 @@ const Fact = () => {
     </div>
   );
 
+  // ============================================================
+  // FACTURE DETAIL
+  // ============================================================
   const renderFactureDetail = () => {
     if (!factureSelectionnee) return null;
     const f = factureSelectionnee;
+    const taux = calcTauxUsager(f);
 
     return (
       <div className="fact-detail">
@@ -575,12 +720,17 @@ const Fact = () => {
                 <span className="fact-detail-value">{formatMontant(f.montant_retard)} Ar</span>
               </div>
             )}
-            {f.taux && (
-              <div className="fact-detail-row">
-                <span className="fact-detail-label"><Percent size={14} /> {t('Taux', 'Taha', 'Rate')}:</span>
-                <span className="fact-detail-value">{f.taux}%</span>
-              </div>
-            )}
+
+            {/* ✅ TAUX — Pas d'icône <Percent /> dans le badge */}
+            <div className="fact-detail-row">
+              <span className="fact-detail-label"><Percent size={14} /> {t('Taux de paiement', 'Taha fandoavana', 'Payment rate')}:</span>
+              <span className="fact-detail-value">
+                <span className={`fact-taux-badge ${taux >= 100 ? 'taux-full' : taux > 0 ? 'taux-partial' : 'taux-zero'}`}>
+                  {formatTaux(taux)}
+                </span>
+              </span>
+            </div>
+
             <div className="fact-detail-row">
               <span className="fact-detail-label"><Calendar size={14} /> {t('Date création', 'Daty namoronana', 'Creation date')}:</span>
               <span className="fact-detail-value">{formatDate(f.date_ajout)}</span>
@@ -622,7 +772,7 @@ const Fact = () => {
                 <div className="fact-detail-row">
                   <span className="fact-detail-label"><Calendar size={14} /> {t('Mois groupés', 'Volana mitambatra', 'Grouped months')}:</span>
                   <span className="fact-detail-value">
-                    {f.mois_groupes.split(',').map(m => getMonthName(parseInt(m))).join(', ')}
+                    {String(f.mois_groupes).split(',').map(m => getMonthName(parseInt(m))).join(', ')}
                   </span>
                 </div>
               )}
@@ -708,7 +858,7 @@ const Fact = () => {
                   <span className="fact-detail-value">{f.suffixe}</span>
                 </div>
               )}
-              {f.quittance_validee !== undefined && (
+              {f.quittance_validee !== undefined && f.quittance_validee !== null && (
                 <div className="fact-detail-row">
                   <span className="fact-detail-label"><CheckCircle size={14} /> {t('Quittance validée', 'Taratasy voamarina', 'Receipt validated')}:</span>
                   <span className="fact-detail-value">

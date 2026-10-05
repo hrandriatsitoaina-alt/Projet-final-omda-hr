@@ -131,10 +131,6 @@
     box-shadow: var(--quit-shadow-md);
   }
   
-  .btn-back-dashboard:active {
-    transform: translateY(0);
-  }
-  
   .btn-back-dashboard svg {
     width: 18px;
     height: 18px;
@@ -191,14 +187,8 @@
   }
   
   @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(-10px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
   
   .pdf-options-content h4 {
@@ -224,6 +214,7 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+    margin-bottom: 10px;
   }
   
   .pdf-option-group label {
@@ -247,6 +238,47 @@
     border-color: var(--quit-blue);
     box-shadow: 0 0 0 3px var(--quit-focus);
     background: #ffffff;
+  }
+  
+  /* ✅ Groupe de radios */
+  .pdf-radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  
+  .pdf-radio {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: #f9fafb;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 13px;
+    font-weight: 500;
+    color: #1f2937;
+  }
+  
+  .pdf-radio:hover {
+    border-color: #667eea;
+    background: #eef2ff;
+  }
+  
+  .pdf-radio input[type="radio"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #667eea;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  
+  .pdf-radio input[type="radio"]:checked + span {
+    color: #4f46e5;
+    font-weight: 700;
   }
   
   .pdf-options-actions {
@@ -316,20 +348,9 @@
     font-size: 13px;
   }
   
-  .pdf-generation-message.success {
-    background: var(--quit-blue-bg-soft);
-    color: var(--quit-blue-darker);
-  }
-  
-  .pdf-generation-message.warning {
-    background: #fff3e0;
-    color: #e65100;
-  }
-  
-  .pdf-generation-message.info {
-    background: var(--quit-blue-bg-soft);
-    color: var(--quit-blue-darker);
-  }
+  .pdf-generation-message.success { background: var(--quit-blue-bg-soft); color: var(--quit-blue-darker); }
+  .pdf-generation-message.warning { background: #fff3e0; color: #e65100; }
+  .pdf-generation-message.info    { background: var(--quit-blue-bg-soft); color: var(--quit-blue-darker); }
   
   /* ============================================================
      CARNET INFO
@@ -352,29 +373,12 @@
     color: #ffffff;
   }
   
-  .carnet-info-item svg {
-    color: #ffffff;
-  }
+  .carnet-info-item svg { color: #ffffff; }
   
-  .carnet-label {
-    color: #e8f4fe;
-    font-weight: 500;
-  }
-  
-  .carnet-value {
-    font-weight: 600;
-    color: #ffffff;
-  }
-  
-  .carnet-value.total {
-    color: #ffffff;
-    font-weight: 700;
-  }
-  
-  .carnet-value.montant {
-    color: #ffffff;
-    font-weight: 700;
-  }
+  .carnet-label { color: #e8f4fe; font-weight: 500; }
+  .carnet-value { font-weight: 600; color: #ffffff; }
+  .carnet-value.total   { color: #ffffff; font-weight: 700; }
+  .carnet-value.montant { color: #ffffff; font-weight: 700; }
   
   .region-select {
     padding: 4px 12px;
@@ -469,16 +473,6 @@
     color: var(--quit-blue-darker) !important;
   }
   
-  .search-wrapper input:-webkit-autofill,
-  .search-wrapper input:-webkit-autofill:hover,
-  .search-wrapper input:-webkit-autofill:focus,
-  .search-wrapper input:-webkit-autofill:active {
-    background: #ffffff !important;
-    -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
-    -webkit-text-fill-color: var(--quit-blue-darker) !important;
-    box-shadow: 0 0 0 1000px #ffffff inset !important;
-  }
-  
   .total-badge {
     display: flex;
     align-items: center;
@@ -493,9 +487,7 @@
     border: 1px solid rgba(255, 255, 255, 0.3);
   }
   
-  .total-badge svg {
-    color: #ffffff;
-  }
+  .total-badge svg { color: #ffffff; }
   
   .btn-refresh {
     display: flex;
@@ -518,13 +510,8 @@
     box-shadow: var(--quit-shadow-md);
   }
   
-  .btn-refresh:hover svg {
-    color: var(--quit-blue-dark);
-  }
-  
-  .btn-refresh svg {
-    color: #ffffff;
-  }
+  .btn-refresh:hover svg { color: var(--quit-blue-dark); }
+  .btn-refresh svg { color: #ffffff; }
   
   /* ============================================================
      CONTENU PRINCIPAL
@@ -545,9 +532,7 @@
     overflow: hidden;
   }
   
-  .quittance-main.with-detail {
-    flex: 2;
-  }
+  .quittance-main.with-detail { flex: 2; }
   
   .quittance-sidebar {
     width: 360px;
@@ -555,7 +540,7 @@
     background: var(--quit-blue-bg-soft);
     border-left: 1px solid var(--quit-blue-border);
     padding: 16px;
-    max-height: 600px;
+    max-height: 700px;
     overflow-y: auto;
   }
   
@@ -619,7 +604,6 @@
     border-left: 3px solid var(--quit-blue-dark);
   }
   
-  /* Colonnes */
   .col-num {
     width: 45px;
     text-align: center;
@@ -677,8 +661,7 @@
     cursor: default !important;
   }
   
-  .loading-cell .spinner,
-  .loading-text .spinner {
+  .loading-cell .spinner {
     display: inline-block;
     width: 24px;
     height: 24px;
@@ -690,15 +673,13 @@
     vertical-align: middle;
   }
   
-  .empty-cell svg,
-  .empty-text svg {
+  .empty-cell svg {
     display: block;
     margin: 0 auto 8px;
     color: var(--quit-blue-light);
   }
   
-  .empty-cell p,
-  .empty-text p {
+  .empty-cell p {
     margin: 0;
     color: #586069;
   }
@@ -726,7 +707,7 @@
   }
   
   @keyframes spin {
-    0% { transform: rotate(0deg); }
+    0%   { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
   }
   
@@ -787,7 +768,7 @@
   }
   
   /* ============================================================
-     DETAIL QUITTANCE (Sidebar)
+     DETAIL QUITTANCE (Sidebar) — Sections conditionnelles
      ============================================================ */
   .quittance-detail-excel {
     background: #ffffff;
@@ -814,9 +795,7 @@
     gap: 6px;
   }
   
-  .detail-header h3 svg {
-    color: #ffffff;
-  }
+  .detail-header h3 svg { color: #ffffff; }
   
   .btn-close-detail {
     background: rgba(255, 255, 255, 0.2);
@@ -830,23 +809,26 @@
     transition: all 0.2s;
   }
   
-  .btn-close-detail:hover {
-    background: rgba(255, 255, 255, 0.35);
-  }
+  .btn-close-detail:hover { background: rgba(255, 255, 255, 0.35); }
   
-  .detail-body {
-    padding: 12px 16px;
-  }
+  .detail-body { padding: 12px 16px; }
   
   .detail-section {
     margin-bottom: 12px;
     padding-bottom: 12px;
     border-bottom: 1px solid var(--quit-blue-bg-soft);
+    animation: fadeIn 0.2s ease-out;
   }
   
   .detail-section:last-child {
     border-bottom: none;
     margin-bottom: 0;
+    padding-bottom: 0;
+  }
+  
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
   
   .detail-section-title {
@@ -863,14 +845,12 @@
     padding-bottom: 6px;
   }
   
-  .detail-section-title svg {
-    color: var(--quit-blue);
-  }
+  .detail-section-title svg { color: var(--quit-blue); }
   
   .detail-row {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     padding: 4px 0;
     font-size: 13px;
     gap: 8px;
@@ -885,9 +865,7 @@
     flex-shrink: 0;
   }
   
-  .detail-label svg {
-    color: var(--quit-blue);
-  }
+  .detail-label svg { color: var(--quit-blue); }
   
   .detail-value {
     color: #24292e;
@@ -926,9 +904,7 @@
     gap: 6px;
   }
   
-  .footer-left svg {
-    color: #ffffff;
-  }
+  .footer-left svg { color: #ffffff; }
   
   /* ============================================================
      BOUTON RETOUR DASHBOARD EN BAS
@@ -965,99 +941,70 @@
     box-shadow: var(--quit-shadow-lg);
   }
   
-  .btn-back-dashboard-bottom:active {
-    transform: translateY(0);
-    box-shadow: var(--quit-shadow-sm);
-  }
-  
   .btn-back-dashboard-bottom svg {
     width: 20px;
     height: 20px;
   }
   
-  .btn-back-dashboard-bottom span {
-    margin: 0 4px;
-  }
-  
   /* ============================================================
      SCROLLBAR
      ============================================================ */
-  .quittance-sidebar::-webkit-scrollbar {
-    width: 6px;
-  }
+  .quittance-sidebar::-webkit-scrollbar { width: 6px; }
+  .quittance-sidebar::-webkit-scrollbar-track { background: var(--quit-blue-bg-soft); }
+  .quittance-sidebar::-webkit-scrollbar-thumb { background: var(--quit-blue); border-radius: 4px; }
+  .quittance-sidebar::-webkit-scrollbar-thumb:hover { background: var(--quit-blue-dark); }
   
-  .quittance-sidebar::-webkit-scrollbar-track {
-    background: var(--quit-blue-bg-soft);
-  }
-  
-  .quittance-sidebar::-webkit-scrollbar-thumb {
-    background: var(--quit-blue);
-    border-radius: 4px;
-  }
-  
-  .quittance-sidebar::-webkit-scrollbar-thumb:hover {
-    background: var(--quit-blue-dark);
-  }
-  
+  /* ============================================================
+   ✅ BADGE PAGE dans le carnet-info
+   ============================================================ */
+.carnet-page-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  margin-left: 8px;
+  backdrop-filter: blur(4px);
+}
   /* ============================================================
      RESPONSIVE
      ============================================================ */
   @media (max-width: 1024px) {
-    .quittance-sidebar {
-      width: 300px;
-    }
+    .quittance-sidebar { width: 300px; }
   }
   
   @media (max-width: 768px) {
-    .quittance-page {
-      padding: 8px 10px;
-    }
+    .quittance-page { padding: 8px 10px; }
   
     .header-top {
       flex-direction: column;
       align-items: stretch;
     }
   
-    .header-actions {
-      justify-content: center;
-    }
+    .header-actions { justify-content: center; }
   
-    .quittance-content {
-      flex-direction: column;
-    }
+    .quittance-content { flex-direction: column; }
   
     .quittance-sidebar {
       width: 100%;
       border-left: none;
       border-top: 1px solid var(--quit-blue-border);
-      max-height: 300px;
+      max-height: 400px;
     }
   
-    .quittance-main.with-detail {
-      flex: 1;
-    }
+    .quittance-main.with-detail { flex: 1; }
   
-    .historique-table {
-      font-size: 12px;
-      min-width: 500px;
-    }
+    .historique-table { font-size: 12px; min-width: 500px; }
   
     .historique-table thead th,
-    .historique-table tbody td {
-      padding: 6px 8px;
-    }
+    .historique-table tbody td { padding: 6px 8px; }
   
-    .historique-table thead th svg {
-      display: none;
-    }
-  
-    .col-quittance { width: 80px; }
-    .col-facture-num { width: 80px; }
-    .col-type-client { width: 70px; }
-    .col-client { min-width: 80px; }
-    .col-montant { width: 70px; }
-    .col-region { width: 80px; }
-    .col-date { width: 70px; }
+    .historique-table thead th svg { display: none; }
   
     .carnet-info {
       flex-direction: column;
@@ -1065,18 +1012,10 @@
       gap: 8px;
     }
   
-    .carnet-info-item {
-      flex-wrap: wrap;
-    }
+    .carnet-info-item { flex-wrap: wrap; }
+    .stats-item { flex-wrap: wrap; }
   
-    .stats-item {
-      flex-wrap: wrap;
-    }
-  
-    .excel-pagination {
-      gap: 2px;
-      padding: 8px 12px;
-    }
+    .excel-pagination { gap: 2px; padding: 8px 12px; }
   
     .page-btn {
       padding: 3px 7px;
@@ -1104,72 +1043,37 @@
       right: -40px;
       left: auto;
     }
-    
-    .pdf-options-grid {
-      grid-template-columns: 1fr;
-    }
+  
+    .pdf-options-grid { grid-template-columns: 1fr; }
   }
   
   @media (max-width: 480px) {
-    .quittance-page {
-      padding: 4px 6px;
-    }
+    .quittance-page { padding: 4px 6px; }
   
-    .quittance-header-professionnel {
-      padding: 12px 16px;
-    }
+    .quittance-header-professionnel { padding: 12px 16px; }
   
-    .header-logo h1 {
-      font-size: 20px;
-    }
+    .header-logo h1 { font-size: 20px; }
   
-    .btn-back-dashboard span {
-      display: none;
-    }
-  
-    .btn-back-dashboard {
-      padding: 8px 12px;
-    }
+    .btn-back-dashboard span { display: none; }
+    .btn-back-dashboard { padding: 8px 12px; }
   
     .search-wrapper input {
       font-size: 12px;
       padding: 6px 10px 6px 34px;
     }
   
-    .historique-table {
-      font-size: 11px;
-      min-width: 400px;
-    }
+    .historique-table { font-size: 11px; min-width: 400px; }
   
     .historique-table thead th,
-    .historique-table tbody td {
-      padding: 4px 6px;
-    }
+    .historique-table tbody td { padding: 4px 6px; }
   
-    .col-num { width: 30px; }
-    .col-quittance { width: 60px; }
-    .col-facture-num { width: 60px; }
-    .col-type-client { width: 50px; }
-    .col-montant { width: 55px; }
-    .col-region { width: 60px; }
-    .col-date { width: 55px; }
+    .quittance-sidebar { max-height: 350px; padding: 10px; }
   
-    .quittance-sidebar {
-      max-height: 250px;
-      padding: 10px;
-    }
+    .detail-body { padding: 8px 10px; }
   
-    .detail-body {
-      padding: 8px 10px;
-    }
+    .detail-row { font-size: 12px; }
   
-    .detail-row {
-      font-size: 12px;
-    }
-  
-    .carnet-info-item {
-      font-size: 12px;
-    }
+    .carnet-info-item { font-size: 12px; }
   
     .region-select {
       font-size: 12px;
@@ -1181,10 +1085,7 @@
       font-size: 12px;
     }
   
-    .btn-back-dashboard-bottom svg {
-      width: 16px;
-      height: 16px;
-    }
+    .btn-back-dashboard-bottom svg { width: 16px; height: 16px; }
   
     .pdf-options-dropdown {
       min-width: 280px;

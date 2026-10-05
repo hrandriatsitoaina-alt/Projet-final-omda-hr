@@ -38,9 +38,20 @@ export const getCurrentDate = (langue = 'fr') => {
 };
 
 // ============================================================
-// FONCTION : NOMBRE EN LETTRES (Ariary)
+// CONVERSION NOMBRE EN LETTRES (FR / EN)
+//   - 'fr' → français
+//   - 'en' → anglais
+//   - 'mg' → PAS DE CONVERSION (retourne '' pour ne rien afficher)
 // ============================================================
 const nombreEnLettres = (num, langue = 'fr') => {
+  // ✅ Malgache : on ne veut AUCUN texte entre parenthèses
+  if (langue === 'mg') return '';
+
+  if (langue === 'en') {
+    return nombreEnLettresAnglais(num);
+  }
+
+  // ---- FRANÇAIS ----
   if (num === 0) return 'zéro';
   if (num < 0) return 'moins ' + nombreEnLettres(-num, langue);
 
@@ -117,6 +128,60 @@ const nombreEnLettres = (num, langue = 'fr') => {
 
   const roundedNum = Math.round(num);
   if (roundedNum === 0) return 'zéro';
+  return convertMillions(roundedNum);
+};
+
+// ============================================================
+// CONVERSION NOMBRE EN LETTRES — ANGLAIS
+// ============================================================
+const nombreEnLettresAnglais = (num) => {
+  if (num === 0) return 'zero';
+  if (num < 0) return 'minus ' + nombreEnLettresAnglais(-num);
+
+  const ones = [
+    '', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+    'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
+    'seventeen', 'eighteen', 'nineteen'
+  ];
+  const tens = [
+    '', '', 'twenty', 'thirty', 'forty', 'fifty',
+    'sixty', 'seventy', 'eighty', 'ninety'
+  ];
+
+  const convertHundreds = (n) => {
+    if (n === 0) return '';
+    if (n < 20) return ones[n];
+    if (n < 100) {
+      const t = Math.floor(n / 10);
+      const u = n % 10;
+      return tens[t] + (u > 0 ? '-' + ones[u] : '');
+    }
+    const h = Math.floor(n / 100);
+    const remainder = n % 100;
+    let result = ones[h] + ' hundred';
+    if (remainder > 0) result += ' and ' + convertHundreds(remainder);
+    return result;
+  };
+
+  const convertThousands = (n) => {
+    if (n < 1000) return convertHundreds(n);
+    const thousands = Math.floor(n / 1000);
+    const remainder = n % 1000;
+    let result = convertHundreds(thousands) + ' thousand';
+    if (remainder > 0) result += ' ' + convertHundreds(remainder);
+    return result;
+  };
+
+  const convertMillions = (n) => {
+    if (n < 1000000) return convertThousands(n);
+    const millions = Math.floor(n / 1000000);
+    const remainder = n % 1000000;
+    let result = convertHundreds(millions) + ' million';
+    if (remainder > 0) result += ' ' + convertThousands(remainder);
+    return result;
+  };
+
+  const roundedNum = Math.round(num);
   return convertMillions(roundedNum);
 };
 
@@ -255,6 +320,10 @@ export const generateOccPDF = (usager, paymentDetails = {}, options = {}) => {
       soitTotal += montantRetard;
     }
 
+    // ✅ Calcul des montants en lettres selon la langue
+    //   - fr → français
+    //   - en → anglais
+    //   - mg → chaîne vide (rien à afficher)
     const totalEnLettres = nombreEnLettres(Math.round(soitTotal), langue);
     const montantEnLettres = nombreEnLettres(Math.floor(montantXUniter), langue);
 
@@ -463,7 +532,6 @@ export const generateOccPDF = (usager, paymentDetails = {}, options = {}) => {
     doc.text(ciApresLabel, marginX + 5, yPos);
     const ciApresLabelWidth = doc.getTextWidth(ciApresLabel);
     doc.setFont('times', 'bold');
-    // ✅ Abréviation O.M.D.A. — même dans les 3 langues
     doc.text('l\'O.M.D.A.', marginX + 5 + ciApresLabelWidth, yPos);
     const omdaWidth = doc.getTextWidth('l\'O.M.D.A.');
     doc.setFont('times', 'normal');
@@ -857,12 +925,16 @@ export const generateOccPDF = (usager, paymentDetails = {}, options = {}) => {
     );
     yPos += 7;
 
-    // MONTANT
+    // ✅ MONTANT — selon la langue
+    //   - fr/en : "... Ar (soixante-treize mille Ariary)"
+    //   - mg    : "... Ar" (sans parenthèses)
     let montantDisplay = '';
     if (uniter > 1) {
-      montantDisplay = `${formatNumber(montantPaye)} × ${uniter} ${t('Uniter', 'Uniter', 'Unit')} = ${formatNumber(montantXUniter)} Ar (${montantEnLettres} Ariary)`;
+      const lettresPart = montantEnLettres ? ` (${montantEnLettres} Ariary)` : '';
+      montantDisplay = `${formatNumber(montantPaye)} × ${uniter} ${t('Uniter', 'Uniter', 'Unit')} = ${formatNumber(montantXUniter)} Ar${lettresPart}`;
     } else {
-      montantDisplay = `${formatNumber(montantPaye)} Ar (${montantEnLettres} Ariary)`;
+      const lettresPart = montantEnLettres ? ` (${montantEnLettres} Ariary)` : '';
+      montantDisplay = `${formatNumber(montantPaye)} Ar${lettresPart}`;
     }
     champ(
       doc, marginX, yPos,
@@ -891,11 +963,14 @@ export const generateOccPDF = (usager, paymentDetails = {}, options = {}) => {
       yPos += 2;
     }
 
-    // SOIT TOTAL
+    // ✅ SOIT TOTAL — selon la langue
+    //   - fr/en : "... Ar (soixante-treize mille Ariary)"
+    //   - mg    : "... Ar" (sans parenthèses)
+    const soitTotalLettresPart = totalEnLettres ? ` (${totalEnLettres} Ariary)` : '';
     champ(
       doc, marginX, yPos,
       t('SOIT TOTAL :', 'VOLA TOTAL :', 'TOTAL AMOUNT:'),
-      `${formatNumber(soitTotal)} Ar (${totalEnLettres} Ariary)`
+      `${formatNumber(soitTotal)} Ar${soitTotalLettresPart}`
     );
     yPos += 7;
 
@@ -987,7 +1062,6 @@ export const generateOccPDF = (usager, paymentDetails = {}, options = {}) => {
     doc.addPage();
     yPos = 30;
 
-    // ✅ TITRE traduit
     doc.setFont('times', 'bold');
     doc.setFontSize(22);
     const authTexte = t(
@@ -1003,7 +1077,6 @@ export const generateOccPDF = (usager, paymentDetails = {}, options = {}) => {
     doc.setFont('times', 'normal');
     doc.setFontSize(12);
 
-    // ✅ Texte d'autorisation multi-langue
     let autorisationText = '';
     if (langue === 'mg') {
       autorisationText = `${organisateurs || '________'} misolo tena Andriamatoa ${representantPar || '________'} dia nahazo alalana hampiasa ny asa ao amin'ny lisitra ankapoben'ny Birao Malagasy misahana ny Zon'ny Mpanoratra (OMDA) amin'ny ${genreManifestation || '________'} ny ${dateEvenement || '________'} miaraka amin'ny ${artistes || '________'} ao ${lieuEvenement || '________'}.`;
@@ -1017,11 +1090,9 @@ export const generateOccPDF = (usager, paymentDetails = {}, options = {}) => {
     doc.text(splitText, marginX, yPos);
     yPos += splitText.length * 5 + 15;
 
-    // ✅ Bloc signature page 3
     centrer(doc, colDroiteCenterX, yPos, `${t('Fait à', 'Natao tao', 'Done at')} ${lieuAjout}, ${t('le', 'ny', 'on')} ${currentDateStr}`);
     yPos += 15;
 
-    // ✅ NOM OFFICIEL FIXE
     centrer(doc, colDroiteCenterX, yPos, t(
       'Pour l\'Office Malagasy du Droit d\'Auteur',
       'Ho an\'ny Office Malagasy du Droit d\'Auteur',

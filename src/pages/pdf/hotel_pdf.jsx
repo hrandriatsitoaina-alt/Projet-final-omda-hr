@@ -43,9 +43,20 @@ export const getCurrentDate = (langue = 'fr') => {
 };
 
 // ============================================================
-// CONVERSION NOMBRE EN LETTRES (FR uniquement)
+// CONVERSION NOMBRE EN LETTRES (FR / EN)
+//   - 'fr' → français
+//   - 'en' → anglais
+//   - 'mg' → PAS DE CONVERSION (retourne '' pour ne rien afficher)
 // ============================================================
 const nombreEnLettres = (num, langue = 'fr') => {
+  // ✅ Malgache : on ne veut AUCUN texte entre parenthèses
+  if (langue === 'mg') return '';
+
+  if (langue === 'en') {
+    return nombreEnLettresAnglais(num);
+  }
+
+  // ---- FRANÇAIS ----
   if (num === 0) return 'zéro';
   if (num < 0) return 'moins ' + nombreEnLettres(-num, langue);
 
@@ -122,6 +133,60 @@ const nombreEnLettres = (num, langue = 'fr') => {
 
   const roundedNum = Math.round(num);
   if (roundedNum === 0) return 'zéro';
+  return convertMillions(roundedNum);
+};
+
+// ============================================================
+// CONVERSION NOMBRE EN LETTRES — ANGLAIS
+// ============================================================
+const nombreEnLettresAnglais = (num) => {
+  if (num === 0) return 'zero';
+  if (num < 0) return 'minus ' + nombreEnLettresAnglais(-num);
+
+  const ones = [
+    '', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+    'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
+    'seventeen', 'eighteen', 'nineteen'
+  ];
+  const tens = [
+    '', '', 'twenty', 'thirty', 'forty', 'fifty',
+    'sixty', 'seventy', 'eighty', 'ninety'
+  ];
+
+  const convertHundreds = (n) => {
+    if (n === 0) return '';
+    if (n < 20) return ones[n];
+    if (n < 100) {
+      const t = Math.floor(n / 10);
+      const u = n % 10;
+      return tens[t] + (u > 0 ? '-' + ones[u] : '');
+    }
+    const h = Math.floor(n / 100);
+    const remainder = n % 100;
+    let result = ones[h] + ' hundred';
+    if (remainder > 0) result += ' and ' + convertHundreds(remainder);
+    return result;
+  };
+
+  const convertThousands = (n) => {
+    if (n < 1000) return convertHundreds(n);
+    const thousands = Math.floor(n / 1000);
+    const remainder = n % 1000;
+    let result = convertHundreds(thousands) + ' thousand';
+    if (remainder > 0) result += ' ' + convertHundreds(remainder);
+    return result;
+  };
+
+  const convertMillions = (n) => {
+    if (n < 1000000) return convertThousands(n);
+    const millions = Math.floor(n / 1000000);
+    const remainder = n % 1000000;
+    let result = convertHundreds(millions) + ' million';
+    if (remainder > 0) result += ' ' + convertThousands(remainder);
+    return result;
+  };
+
+  const roundedNum = Math.round(num);
   return convertMillions(roundedNum);
 };
 
@@ -240,7 +305,21 @@ export const generateHotelPDF = (usager, paymentDetails = {}, options = {}) => {
 
     const baseTotal = (montantMensuel + sommeTaux) * uniter;
     const soitTotal = baseTotal + fraisDossier;
+
+    // ✅ Calcul du montant en lettres
+    //   - fr → français
+    //   - en → anglais
+    //   - mg → chaîne vide (rien à afficher)
     const totalEnLettres = nombreEnLettres(Math.round(soitTotal), langue);
+
+    // ✅ Construction de la ligne "Soit au Total"
+    //   - fr/en : "soit au total : 73 000 Ar (soixante-treize mille)"
+    //   - mg    : "vola total : 73 000 Ar" (sans parenthèses)
+    const totalLabel = t('Soit au Total', 'Vola total', 'Total amount');
+    const totalValue = formatNumber(soitTotal);
+    const totalLine = totalEnLettres
+      ? `${totalLabel} : ${totalValue} Ariary (${totalEnLettres})`
+      : `${totalLabel} : ${totalValue} Ariary`;
 
     const aCompterDu = usager?.a_compter_du ? formatDate(usager.a_compter_du, langue) : '';
     const echeance = usager?.echeance ? formatDate(usager.echeance, langue) : '';
@@ -423,18 +502,14 @@ export const generateHotelPDF = (usager, paymentDetails = {}, options = {}) => {
     // Soit au Total
     doc.setFont('times', 'bold');
     doc.setFontSize(12);
-    doc.text(
-      `${t('Soit au Total', 'Vola total', 'Total amount')} : ${formatNumber(soitTotal)} Ariary (${totalEnLettres})`,
-      marginX + 5,
-      yPos
-    );
+    doc.text(totalLine, marginX + 5, yPos);
     yPos += lineSpacing + 5;
 
     doc.setFont('times', 'normal');
     doc.text(`${t('A compter du', 'Manomboka ny', 'Starting from')} : ${aCompterDu || '……………………………………'}`, marginX + 5, yPos);
     yPos += lineSpacing;
 
-    doc.text(`${t('Echéance', 'Faran\'ny fe-potoana', 'Due date')} : ${echeance || '……………………………………'}`, marginX + 5, yPos);
+    doc.text(`${t('Echeance', 'Faran\'ny fe-potoana', 'Due date')} : ${echeance || '……………………………………'}`, marginX + 5, yPos);
     yPos += lineSpacing + 2;
 
     doc.text(

@@ -432,7 +432,7 @@ const Diagnostique = () => {
             {regionsDisponibles.map(region => (<option key={region} value={region}>{region}</option>))}
           </select>
           <button onClick={() => navigate('/dashboard')} className="btn-header btn-dashboard">
-            <Home size={16} /> {t('Dashboard', 'Tabilao', 'Dashboard')}
+            <Home size={16} /> {t('Accueil', 'Tabilao', 'Dashboard')}
           </button>
         </div>
       </div>

@@ -38,7 +38,7 @@ const MainCards = () => {
   const statTypes = useMemo(() => [
     { key: 'hotel',        label: t('Hôtel',          'Trano fandraisam-bahiny',   'Hotel'),       color: '#4CAF50' },
     { key: 'grandSurface', label: t('Grande Surface', 'Trano fivarotana lehibe',   'Supermarket'), color: '#2196F3' },
-    { key: 'bus',          label: t('Bus',            'Fiarakodia',                'Bus'),         color: '#FF9800' },
+    { key: 'bus',          label: t('Transport',      'Fitanterana',               'Transport'),   color: '#FF9800' },
     { key: 'nightclub',    label: t('Night Club',     'Kliobina alina',            'Night Club'),  color: '#9C27B0' },
     { key: 'media',        label: t('Média',          'Haino aman-jery',           'Media'),       color: '#E91E63' },
     { key: 'occ',          label: t('Occasionnelle',  'Tsindraindray',             'Occasional'),  color: '#00BCD4' },

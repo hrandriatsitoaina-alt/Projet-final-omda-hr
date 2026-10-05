@@ -1,27 +1,27 @@
 // VerificationUsager.jsx
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, {
+  useState, useEffect, useRef, useMemo, useCallback,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Search, FileText, Calendar, MapPin, Phone, Mail, Home,
-  ChevronLeft, ChevronRight, User, Building, Music,
+  Search, FileText, Calendar, MapPin, User, Building, Music,
   Eye, CheckCircle, XCircle, Clock, AlertCircle, RefreshCw,
-  CreditCard, Users, Printer, Download, ArrowLeft,
-  PlusCircle, Edit, Info, Tag, Hash, Calendar as CalendarIcon,
-  DollarSign, FolderOpen, UserCheck, Briefcase, Map,
-  Globe, Smartphone, AtSign, Home as HomeIcon,
-  EyeOff, List, Grid, Maximize2
+  Users, ArrowLeft, PlusCircle, Info, Tag, Hash,
+  Calendar as CalendarIcon, DollarSign, FolderOpen, UserCheck,
+  Map as MapIcon, Globe, Smartphone, AtSign, Home as HomeIcon,
+  ChevronLeft, ChevronRight, X,
 } from 'lucide-react';
 import '../styles/VerificationUsager.css';
-// ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
+
+// ✅ Constante centralisée
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const SEARCH_DEBOUNCE_MS = 400;
 
 const VerificationUsager = () => {
   const navigate = useNavigate();
-
-  // ✅ LANGUE UNIQUE — vient du Context
   const { t, langue } = useT();
 
-  // ✅ Locale pour formatage
   const locale = useMemo(() => {
     if (langue === 'en') return 'en-US';
     if (langue === 'mg') return 'fr-MG';
@@ -35,66 +35,157 @@ const VerificationUsager = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Champs de recherche
+  const [paiementsBruts, setPaiementsBruts] = useState([]);
+
   const [prefixe, setPrefixe] = useState('');
   const [numero, setNumero] = useState('');
   const [semestre, setSemestre] = useState('');
   const [annee, setAnnee] = useState('');
 
-  // Suggestions
   const [prefixeSuggestions, setPrefixeSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [anneesDisponibles, setAnneesDisponibles] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+
+  // ✅ Dictionnaire des préfixes → nom utilisateur
   const [prefixeDetails, setPrefixeDetails] = useState({});
-  const [showPrefixeList, setShowPrefixeList] = useState(false);
+
+  // ✅ Dropdown de la LISTE DES UTILISATEURS (bouton ℹ️)
+  const [showUsersList, setShowUsersList] = useState(false);
+
+  const [searchMessage, setSearchMessage] = useState({ type: '', text: '' });
+  const [hasSearched, setHasSearched] = useState(false);
 
   const suggestionRef = useRef(null);
+  const usersListRef = useRef(null);
+  const debounceTimerRef = useRef(null);
 
-  // Chargement initial
+  // ============================================================
+  // INIT
+  // ============================================================
   useEffect(() => {
     fetchAllUsagers();
     fetchAnnees();
     fetchPrefixeDetails();
+    fetchPaiements();
     // eslint-disable-next-line
   }, []);
 
-  // Gestion du clic en dehors des suggestions
+  // ✅ Click outside → ferme les dropdowns
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (suggestionRef.current && !suggestionRef.current.contains(event.target)) {
         setShowSuggestions(false);
+      }
+      if (usersListRef.current && !usersListRef.current.contains(event.target)) {
+        setShowUsersList(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ✅ Empêcher le scroll de la page quand la modale est ouverte
+  // ✅ Body lock quand un overlay est ouvert
   useEffect(() => {
-    if (showPrefixeList) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [showPrefixeList]);
+    document.body.style.overflow = 'unset';
+    return () => { document.body.style.overflow = 'unset'; };
+  }, []);
 
-  // Récupérer tous les usagers
+  // ============================================================
+  // RECHERCHE FLUIDE (DEBOUNCED)
+  // ============================================================
+  const effectuerRecherche = useCallback(async (
+    p = prefixe, n = numero, s = semestre, a = annee
+  ) => {
+    setIsSearching(true);
+    setSearchMessage({ type: '', text: '' });
+
+    try {
+      const params = new URLSearchParams();
+      if (p && String(p).trim()) params.set('prefixe', String(p).trim().toUpperCase());
+      if (n && String(n).trim()) params.set('numero', String(n).trim());
+      if (s && String(s).trim()) params.set('semestre', String(s).trim());
+      if (a && String(a).trim()) params.set('annee', String(a).trim());
+
+      const qs = params.toString();
+      const url = `${API_URL}/api/verification/recherche${qs ? `?${qs}` : ''}`;
+
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (!response.ok) {
+        setSearchMessage({
+          type: 'error',
+          text: data.message || t('Erreur de recherche', 'Nisy olana', 'Search error'),
+        });
+        return;
+      }
+
+      if (data.success) {
+        setFilteredUsagers(data.usagers);
+        setSelectedUsager(data.usagers.length > 0 ? data.usagers[0] : null);
+        setCurrentPage(1);
+        setHasSearched(true);
+
+        if (data.usagers.length === 0) {
+          setSearchMessage({
+            type: 'warning',
+            text: data.message || t('Aucun usager trouvé', 'Tsy misy mpampiasa hita', 'No user found'),
+          });
+        } else if (data.dossierRecherche) {
+          setSearchMessage({
+            type: 'success',
+            text: t(
+              `${data.usagers.length} usager(s) trouvé(s) pour : ${data.dossierRecherche}`,
+              `${data.usagers.length} mpampiasa hita ho : ${data.dossierRecherche}`,
+              `${data.usagers.length} user(s) found for: ${data.dossierRecherche}`
+            ),
+          });
+        }
+      }
+    } catch (error) {
+      console.error('❌ Erreur recherche:', error);
+      setSearchMessage({
+        type: 'error',
+        text: t(
+          `Erreur réseau : ${error.message}`,
+          `Nisy olana : ${error.message}`,
+          `Network error: ${error.message}`
+        ),
+      });
+    } finally {
+      setIsSearching(false);
+    }
+  }, [prefixe, numero, semestre, annee, t]);
+
+  useEffect(() => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
+    const tousVides = !prefixe.trim() && !numero && !semestre && !annee;
+    if (tousVides && !hasSearched) return;
+
+    debounceTimerRef.current = setTimeout(() => {
+      effectuerRecherche(prefixe, numero, semestre, annee);
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+    // eslint-disable-next-line
+  }, [prefixe, numero, semestre, annee]);
+
+  // ============================================================
+  // FETCH HELPERS
+  // ============================================================
   const fetchAllUsagers = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/verification/usagers');
+      const response = await fetch(`${API_URL}/api/verification/usagers`);
       const data = await response.json();
-
       if (data.success) {
         setUsagers(data.usagers);
         setFilteredUsagers(data.usagers);
-        if (data.usagers.length > 0) {
-          setSelectedUsager(data.usagers[0]);
-        }
+        if (data.usagers.length > 0) setSelectedUsager(data.usagers[0]);
       }
     } catch (error) {
       console.error('❌ Erreur chargement usagers:', error);
@@ -103,41 +194,44 @@ const VerificationUsager = () => {
     }
   };
 
-  // Récupérer les années disponibles
+  const fetchPaiements = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/paiements/tous`);
+      const data = await response.json();
+      if (data.success) setPaiementsBruts(data.paiements || []);
+    } catch (error) {
+      console.error('❌ Erreur paiements:', error);
+      setPaiementsBruts([]);
+    }
+  };
+
   const fetchAnnees = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/verification/annees');
+      const response = await fetch(`${API_URL}/api/verification/annees`);
       const data = await response.json();
-      if (data.success) {
-        setAnneesDisponibles(data.annees);
-      }
+      if (data.success) setAnneesDisponibles(data.annees);
     } catch (error) {
-      console.error('❌ Erreur chargement années:', error);
+      console.error('❌ Erreur années:', error);
     }
   };
 
-  // Récupérer les détails des préfixes
   const fetchPrefixeDetails = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/verification/prefixes-details');
+      const response = await fetch(`${API_URL}/api/verification/prefixes-details`);
       const data = await response.json();
-      if (data.success) {
-        setPrefixeDetails(data.prefixes);
-      }
+      if (data.success) setPrefixeDetails(data.prefixes);
     } catch (error) {
-      console.error('❌ Erreur chargement détails préfixes:', error);
+      console.error('❌ Erreur détails préfixes:', error);
     }
   };
 
-  // Récupérer les suggestions de préfixes
   const fetchPrefixeSuggestions = async (search) => {
     if (!search || search.length < 1) {
       setPrefixeSuggestions([]);
       return;
     }
-
     try {
-      const response = await fetch(`http://localhost:3001/api/verification/suggestions/prefixes?search=${search}`);
+      const response = await fetch(`${API_URL}/api/verification/suggestions/prefixes?search=${search}`);
       const data = await response.json();
       if (data.success) {
         setPrefixeSuggestions(data.suggestions);
@@ -148,51 +242,18 @@ const VerificationUsager = () => {
     }
   };
 
-  // Rechercher un usager par dossier
-  const rechercherUsager = async () => {
-    if (!prefixe || !numero || !semestre || !annee) {
-      alert(t('Veuillez remplir tous les champs', 'Fenoy ny saha rehetra', 'Please fill all fields'));
-      return;
-    }
-
-    setIsSearching(true);
-    try {
-      const response = await fetch(
-        `http://localhost:3001/api/verification/recherche?prefixe=${prefixe}&numero=${numero}&semestre=${semestre}&annee=${annee}`
-      );
-      const data = await response.json();
-
-      if (data.success) {
-        setFilteredUsagers(data.usagers);
-        if (data.usagers.length > 0) {
-          setSelectedUsager(data.usagers[0]);
-        } else {
-          setSelectedUsager(null);
-          alert(t(
-            'Aucun usager trouvé avec ce numéro de dossier',
-            'Tsy misy mpampiasa hita amin\'io laharana rakitra io',
-            'No user found with this file number'
-          ));
-        }
-        setCurrentPage(1);
-      }
-    } catch (error) {
-      console.error('❌ Erreur recherche:', error);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // Réinitialiser la recherche
+  // ============================================================
+  // RESET & INPUT HANDLERS
+  // ============================================================
   const resetSearch = () => {
     setPrefixe('');
     setNumero('');
     setSemestre('');
     setAnnee('');
+    setSearchMessage({ type: '', text: '' });
+    setHasSearched(false);
     setFilteredUsagers(usagers);
     setSelectedUsager(usagers.length > 0 ? usagers[0] : null);
-    setPrefixeSuggestions([]);
-    setShowSuggestions(false);
     setCurrentPage(1);
   };
 
@@ -208,51 +269,101 @@ const VerificationUsager = () => {
     setPrefixeSuggestions([]);
   };
 
-  const togglePrefixeList = () => {
-    setShowPrefixeList(!showPrefixeList);
-  };
+  const toggleUsersList = () => setShowUsersList(!showUsersList);
 
-  // Pagination
+  // ============================================================
+  // PAGINATION
+  // ============================================================
   const totalPages = Math.ceil(filteredUsagers.length / itemsPerPage);
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentUsagers = filteredUsagers.slice(indexOfFirstItem, indexOfLastItem);
+  const goToPage = (page) => setCurrentPage(page);
 
-  const goToPage = (page) => {
-    setCurrentPage(page);
-  };
-
+  // ============================================================
+  // FORMATTERS
+  // ============================================================
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     try {
       return new Date(dateString).toLocaleDateString(locale, {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
+        day: '2-digit', month: '2-digit', year: 'numeric',
       });
-    } catch {
-      return dateString;
-    }
+    } catch { return dateString; }
   };
 
   const formatMontant = (montant) => {
-    if (!montant) return `0 Ar`;
-    return `${Number(montant).toLocaleString(locale)} Ar`;
+    const n = parseFloat(montant);
+    if (isNaN(n) || n === 0) return `0 Ar`;
+    return `${n.toLocaleString(locale)} Ar`;
   };
 
+  // ============================================================
+  // ✅ HELPER : obtenir la bonne référence (OMDA / DAF) selon le type
+  // ============================================================
+  const getReferenceLabel = (usager) => {
+    if (!usager) return { label: 'OMDA', value: 'N/A' };
+    // ✅ Pour les usagers "Autre" (OTH) → DAF
+    if (usager.ref_client_type === 'OTH') {
+      return { label: 'DAF', value: usager.ref_omda || 'N/A' };
+    }
+    // Autres types → OMDA
+    return { label: 'OMDA', value: usager.ref_omda || 'N/A' };
+  };
+
+  // ============================================================
+  // MONTANTS
+  // ============================================================
+  const paiementsParUsager = useMemo(() => {
+    const map = {};
+    for (const p of paiementsBruts) {
+      if (p.statut !== 'paye') continue;
+      const typeKey = p.usager_type === 'autre' ? 'other' : p.usager_type;
+      const key = `${typeKey}_${p.usager_id}`;
+      if (!map[key]) map[key] = { total: 0, nbPaiements: 0, paiements: [] };
+      map[key].total += parseFloat(p.montant) || 0;
+      map[key].nbPaiements += 1;
+      map[key].paiements.push(p);
+    }
+    return map;
+  }, [paiementsBruts]);
+
+  const getMontantReelUsager = useCallback((usager) => {
+    if (!usager) return 0;
+    const typeRaw = usager.ref_client_type?.toLowerCase() || '';
+    const typeMap = {
+      'htl': 'hotel', 'mgs': 'grand-surface', 'rdp': 'media',
+      'trp': 'bus', 'ngt': 'nightclub', 'occ': 'occ',
+      'oth': 'other', 'aut': 'other',
+    };
+    const type = typeMap[typeRaw] || typeRaw;
+    const id = usager.ref_usager || usager.id;
+    const key = `${type}_${id}`;
+    const paiementInfo = paiementsParUsager[key];
+    if (paiementInfo && paiementInfo.total > 0) return paiementInfo.total;
+    return parseFloat(usager.soit_total) || 0;
+  }, [paiementsParUsager]);
+
+  const montantTotalReel = useMemo(() => {
+    let total = 0;
+    for (const u of filteredUsagers) total += getMontantReelUsager(u);
+    return total;
+  }, [filteredUsagers, getMontantReelUsager]);
+
+  // ============================================================
+  // BADGES
+  // ============================================================
   const getStatusBadge = (status) => {
     const configs = {
-      'validee': { label: t('Validé', 'Voamarina', 'Validated'), className: 'status-approved', icon: CheckCircle },
-      'en_attente': { label: t('En attente', 'Miandry', 'Pending'), className: 'status-pending', icon: Clock },
-      'rejete': { label: t('Rejeté', 'Nolavina', 'Rejected'), className: 'status-rejected', icon: XCircle },
-      'pending': { label: t('En attente', 'Miandry', 'Pending'), className: 'status-pending', icon: Clock },
-      'approved': { label: t('Approuvé', 'Nekena', 'Approved'), className: 'status-approved', icon: CheckCircle },
-      'rejected': { label: t('Rejeté', 'Nolavina', 'Rejected'), className: 'status-rejected', icon: XCircle }
+      'validee':   { label: t('Validé', 'Voamarina', 'Validated'), className: 'status-approved', icon: CheckCircle },
+      'en_attente':{ label: t('En attente', 'Miandry', 'Pending'), className: 'status-pending', icon: Clock },
+      'rejete':    { label: t('Rejeté', 'Nolavina', 'Rejected'), className: 'status-rejected', icon: XCircle },
+      'pending':   { label: t('En attente', 'Miandry', 'Pending'), className: 'status-pending', icon: Clock },
+      'approved':  { label: t('Approuvé', 'Nekena', 'Approved'), className: 'status-approved', icon: CheckCircle },
+      'rejected':  { label: t('Rejeté', 'Nolavina', 'Rejected'), className: 'status-rejected', icon: XCircle },
     };
-
     const config = configs[status?.toLowerCase()] || configs['pending'];
     const Icon = config.icon;
-
     return (
       <span className={`status-badge ${config.className}`}>
         <Icon size={14} />
@@ -264,14 +375,14 @@ const VerificationUsager = () => {
   const getTypeBadge = (type) => {
     const types = {
       'HTL': { label: t('Hôtel', 'Hotely', 'Hotel'), color: '#2196F3', bg: '#E3F2FD', icon: Building },
-      'MGS': { label: t('Grand Surface', 'Fivarotana lehibe', 'Grand Surface'), color: '#FF9800', bg: '#FFF3E0', icon: Map },
+      'MGS': { label: t('Grand Surface', 'Fivarotana lehibe', 'Grand Surface'), color: '#FF9800', bg: '#FFF3E0', icon: MapIcon },
       'RDP': { label: t('Télé/Radio', 'Fahitalavitra/Radio', 'TV/Radio'), color: '#9C27B0', bg: '#F3E5F5', icon: Globe },
-      'TRP': { label: t('Bus', 'Bus', 'Bus'), color: '#F44336', bg: '#FFEBEE', icon: Map },
+      'TRP': { label: t('Bus', 'Bus', 'Bus'), color: '#F44336', bg: '#FFEBEE', icon: MapIcon },
       'NGT': { label: t('Night Club', 'Club alina', 'Night Club'), color: '#E91E63', bg: '#FCE4EC', icon: Music },
       'OCC': { label: t('Occasionnelle', 'Fotoana manokana', 'Occasional'), color: '#4CAF50', bg: '#E8F5E9', icon: Calendar },
-      'AUT': { label: t('Autre', 'Hafa', 'Other'), color: '#757575', bg: '#F5F5F5', icon: FileText }
+      'AUT': { label: t('Autre', 'Hafa', 'Other'), color: '#757575', bg: '#F5F5F5', icon: FileText },
+      'OTH': { label: t('Autre', 'Hafa', 'Other'), color: '#757575', bg: '#F5F5F5', icon: FileText },
     };
-
     const config = types[type] || types['AUT'];
     const Icon = config.icon;
     return (
@@ -296,187 +407,64 @@ const VerificationUsager = () => {
   );
 
   // ============================================================
-  // ✅ MODAL LISTE DES PRÉFIXES
+  // ✅ DROPDOWN UTILISATEURS (déclenché par le bouton ℹ️)
+  //    Liste indépendante avec : nom complet + préfixe
   // ============================================================
-  const PrefixeListModal = () => {
-    if (!showPrefixeList) return null;
+  const UsersListDropdown = () => {
+    if (!showUsersList) return null;
+
+    const utilisateurs = Object.entries(prefixeDetails).map(([prefixeKey, nomComplet]) => ({
+      prefixe: prefixeKey,
+      nom: nomComplet,
+    }));
 
     return (
       <div
-        className="prefixe-modal-overlay"
-        onClick={togglePrefixeList}
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.5)',
-          backdropFilter: 'blur(6px)',
-          WebkitBackdropFilter: 'blur(6px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          animation: 'fadeIn 0.2s ease-out'
-        }}
+        className="users-list-dropdown"
+        onClick={(e) => e.stopPropagation()}
       >
-        <div
-          className="prefixe-modal-content"
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            background: '#ffffff',
-            borderRadius: '16px',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
-            maxWidth: '600px',
-            width: '90%',
-            maxHeight: '80vh',
-            display: 'flex',
-            flexDirection: 'column',
-            animation: 'slideUp 0.3s ease-out'
-          }}
-        >
-          {/* En-tête de la modale */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '20px 24px',
-            borderBottom: '2px solid #e5e7eb',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            borderTopLeftRadius: '16px',
-            borderTopRightRadius: '16px',
-            color: '#ffffff'
-          }}>
-            <h3 style={{
-              margin: 0,
-              fontSize: '18px',
-              fontWeight: '700',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px'
-            }}>
-              <Eye size={22} />
-              {t('Liste des préfixes et leurs significations', 'Lisitry ny prefixes sy ny dikany', 'List of prefixes and their meanings')}
-            </h3>
-            <button
-              onClick={togglePrefixeList}
-              style={{
-                background: 'rgba(255, 255, 255, 0.2)',
-                border: 'none',
-                color: '#ffffff',
-                fontSize: '24px',
-                width: '36px',
-                height: '36px',
-                borderRadius: '50%',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.2s ease',
-                lineHeight: 1
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.35)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)'}
-              title={t('Fermer', 'Hidio', 'Close')}
-            >
-              ×
-            </button>
-          </div>
-
-          {/* Corps de la modale */}
-          <div style={{
-            padding: '20px 24px',
-            overflowY: 'auto',
-            flex: 1
-          }}>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-              gap: '12px'
-            }}>
-              {Object.entries(prefixeDetails).map(([key, value]) => (
-                <div
-                  key={key}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    padding: '12px 16px',
-                    background: '#f9fafb',
-                    border: '2px solid #e5e7eb',
-                    borderRadius: '10px',
-                    transition: 'all 0.2s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = '#667eea';
-                    e.currentTarget.style.background = '#eef2ff';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.background = '#f9fafb';
-                  }}
-                >
-                  <div style={{
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    color: '#ffffff',
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    fontWeight: '700',
-                    fontSize: '14px',
-                    letterSpacing: '0.5px',
-                    minWidth: '55px',
-                    textAlign: 'center',
-                    flexShrink: 0
-                  }}>
-                    {key}
-                  </div>
-                  <div style={{
-                    color: '#1f2937',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.3px'
-                  }}>
-                    {value}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {Object.keys(prefixeDetails).length === 0 && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '40px',
-                color: '#6b7280',
-                gap: '12px'
-              }}>
-                <AlertCircle size={40} />
-                <p style={{ margin: 0, fontSize: '15px' }}>
-                  {t('Aucun préfixe disponible', 'Tsy misy prefix hita', 'No prefix available')}
-                </p>
-              </div>
-            )}
-          </div>
+        <div className="users-list-header">
+          <Users size={16} />
+          <span>{t('Liste des utilisateurs', 'Lisitry ny mpampiasa', 'Users list')}</span>
+          <span className="users-list-count">({utilisateurs.length})</span>
+          <button
+            className="users-list-close"
+            onClick={toggleUsersList}
+            title={t('Fermer', 'Hidio', 'Close')}
+          >
+            <X size={14} />
+          </button>
         </div>
 
-        {/* Animation CSS intégrée */}
-        <style>{`
-          @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
-          @keyframes slideUp {
-            from { transform: translateY(30px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-          }
-        `}</style>
+        <div className="users-list-body">
+          {utilisateurs.length > 0 ? (
+            utilisateurs.map((u, index) => (
+              <div
+                key={index}
+                className="users-list-item"
+                onClick={() => {
+                  setPrefixe(u.prefixe);
+                  setShowUsersList(false);
+                }}
+              >
+                <div className="users-list-prefixe">{u.prefixe}</div>
+                <div className="users-list-nom">{u.nom}</div>
+              </div>
+            ))
+          ) : (
+            <div className="users-list-empty">
+              <AlertCircle size={20} />
+              <span>{t('Aucun utilisateur', 'Tsy misy mpampiasa', 'No user')}</span>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
 
+  // ============================================================
+  // RENDU
+  // ============================================================
   if (loading) {
     return (
       <div className="verification-container">
@@ -499,14 +487,14 @@ const VerificationUsager = () => {
           </h1>
           <p className="header-subtitle">
             {t(
-              'Recherchez un usager par son numéro de dossier',
-              'Hikaroka mpampiasa amin\'ny laharana rakitra',
-              'Search for a user by file number'
+              'Recherche progressive — chaque champ est optionnel',
+              'Fikarohana miandalana — tsy voatery ny saha rehetra',
+              'Progressive search — each field is optional'
             )}
           </p>
         </div>
         <div className="header-actions">
-          <button className="btn-refreshs" onClick={fetchAllUsagers} title={t('Actualiser', 'Havaozy', 'Refresh')}>
+          <button className="btn-refreshs" onClick={() => { fetchAllUsagers(); fetchPaiements(); }} title={t('Actualiser', 'Havaozy', 'Refresh')}>
             <RefreshCw size={18} />
           </button>
           <button className="btn-new" onClick={() => navigate('/dashboard')}>
@@ -519,54 +507,49 @@ const VerificationUsager = () => {
       {/* Barre de recherche */}
       <div className="search-bar">
         <div className="search-fields">
-          <div className="search-field" ref={suggestionRef}>
+          {/* Préfixe + bouton ℹ️ + dropdown utilisateurs */}
+          <div className="search-field search-field-prefixe" ref={usersListRef}>
             <label>
               <Tag size={14} />
               {t('Préfixe', 'Prefix', 'Prefix')}
               <button
+                type="button"
                 className="btn-prefixe-info"
-                onClick={togglePrefixeList}
-                title={t('Voir la liste des préfixes', 'Hijery ny lisitry ny prefixes', 'View prefix list')}
+                onClick={toggleUsersList}
+                title={t('Voir la liste des utilisateurs', 'Hijery ny lisitry ny mpampiasa', 'View users list')}
               >
                 <Info size={14} />
               </button>
             </label>
-            <input
-              type="text"
-              placeholder={t('Ex: AND, FIT, RAT...', 'Ohatra: AND, FIT, RAT...', 'Ex: AND, FIT, RAT...')}
-              value={prefixe}
-              onChange={handlePrefixeChange}
-              onFocus={() => {
-                if (prefixeSuggestions.length > 0) {
-                  setShowSuggestions(true);
-                }
-              }}
-              className="search-input"
-              maxLength={10}
-            />
-            {showSuggestions && prefixeSuggestions.length > 0 && (
-              <div className="suggestions-dropdown">
-                {prefixeSuggestions.map((suggestion, index) => (
-                  <div
-                    key={index}
-                    className="suggestion-item"
-                    onClick={() => selectPrefixe(suggestion)}
-                  >
-                    <span className="suggestion-prefixe">{suggestion}</span>
-                    <span className="suggestion-detail">
-                      {prefixeDetails[suggestion] || ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+
+            <div className="search-input-wrapper" ref={suggestionRef}>
+              <input
+                type="text"
+                placeholder={t('Ex: AND, FIT, RAT...', 'Ohatra: AND, FIT, RAT...', 'Ex: AND, FIT, RAT...')}
+                value={prefixe}
+                onChange={handlePrefixeChange}
+                onFocus={() => { if (prefixeSuggestions.length > 0) setShowSuggestions(true); }}
+                className="search-input"
+                maxLength={10}
+              />
+              {showSuggestions && prefixeSuggestions.length > 0 && (
+                <div className="suggestions-dropdown">
+                  {prefixeSuggestions.map((suggestion, index) => (
+                    <div key={index} className="suggestion-item" onClick={() => selectPrefixe(suggestion)}>
+                      <span className="suggestion-prefixe">{suggestion}</span>
+                      <span className="suggestion-detail">{prefixeDetails[suggestion] || ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ✅ Liste indépendante des utilisateurs */}
+            <UsersListDropdown />
           </div>
 
           <div className="search-field">
-            <label>
-              <Hash size={14} />
-              {t('Numéro', 'Laharana', 'Number')}
-            </label>
+            <label><Hash size={14} />{t('Numéro', 'Laharana', 'Number')}</label>
             <input
               type="number"
               placeholder={t('Ex: 49', 'Ohatra: 49', 'Ex: 49')}
@@ -578,32 +561,19 @@ const VerificationUsager = () => {
           </div>
 
           <div className="search-field">
-            <label>
-              <CalendarIcon size={14} />
-              {t('Semestre', 'Semestre', 'Semester')}
-            </label>
-            <select
-              value={semestre}
-              onChange={(e) => setSemestre(e.target.value)}
-              className="search-select"
-            >
-              <option value="">{t('Semestre', 'Semestre', 'Semester')}</option>
+            <label><CalendarIcon size={14} />{t('Trimestre', 'Trimestre', 'Quarter')}</label>
+            <select value={semestre} onChange={(e) => setSemestre(e.target.value)} className="search-select">
+              <option value="">{t('Trimestre', 'Trimestre', 'Quarter')}</option>
               <option value="1">1</option>
               <option value="2">2</option>
               <option value="3">3</option>
+              <option value="4">4</option>
             </select>
           </div>
 
           <div className="search-field">
-            <label>
-              <Calendar size={14} />
-              {t('Année', 'Taona', 'Year')}
-            </label>
-            <select
-              value={annee}
-              onChange={(e) => setAnnee(e.target.value)}
-              className="search-select"
-            >
+            <label><Calendar size={14} />{t('Année', 'Taona', 'Year')}</label>
+            <select value={annee} onChange={(e) => setAnnee(e.target.value)} className="search-select">
               <option value="">{t('Année', 'Taona', 'Year')}</option>
               {anneesDisponibles.map((a) => (
                 <option key={a} value={a}>{a}</option>
@@ -612,68 +582,74 @@ const VerificationUsager = () => {
           </div>
 
           <div className="search-actions">
-            <button
-              className="btn-search"
-              onClick={rechercherUsager}
-              disabled={isSearching}
-            >
+            <button className="btn-search" onClick={() => effectuerRecherche()} disabled={isSearching}>
               <Search size={18} />
-              {isSearching
-                ? t('Recherche...', 'Mikaroka...', 'Searching...')
-                : t('Rechercher', 'Hikaroka', 'Search')}
+              {isSearching ? t('Recherche...', 'Mikaroka...', 'Searching...') : t('Rechercher', 'Hikaroka', 'Search')}
             </button>
-            <button
-              className="btn-reset"
-              onClick={resetSearch}
-            >
+            <button className="btn-reset" onClick={resetSearch}>
               {t('Réinitialiser', 'Averina', 'Reset')}
             </button>
           </div>
         </div>
-      </div>
 
-      <PrefixeListModal />
+        {/* Critères actifs */}
+        {(prefixe || numero || semestre || annee) && (
+          <div className="search-criteria-bar">
+            <span className="search-criteria-label">
+              {t('Critères actifs :', 'Fepetra mavitrika :', 'Active criteria:')}
+            </span>
+            {prefixe && (
+              <span className="search-criteria-chip">
+                <Tag size={12} /> {prefixe}
+                <button onClick={() => setPrefixe('')}><X size={10} /></button>
+              </span>
+            )}
+            {numero && (
+              <span className="search-criteria-chip">
+                <Hash size={12} /> {numero}
+                <button onClick={() => setNumero('')}><X size={10} /></button>
+              </span>
+            )}
+            {semestre && (
+              <span className="search-criteria-chip">
+                <CalendarIcon size={12} /> T{semestre}
+                <button onClick={() => setSemestre('')}><X size={10} /></button>
+              </span>
+            )}
+            {annee && (
+              <span className="search-criteria-chip">
+                <Calendar size={12} /> {annee}
+                <button onClick={() => setAnnee('')}><X size={10} /></button>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Message inline */}
+        {searchMessage.text && (
+          <div className={`search-message search-message-${searchMessage.type}`}>
+            {searchMessage.type === 'error' && <AlertCircle size={16} />}
+            {searchMessage.type === 'success' && <CheckCircle size={16} />}
+            {searchMessage.type === 'warning' && <AlertCircle size={16} />}
+            <span>{searchMessage.text}</span>
+            <button className="search-message-close" onClick={() => setSearchMessage({ type: '', text: '' })}>×</button>
+          </div>
+        )}
+      </div>
 
       {/* Cartes d'information */}
       <div className="info-cards-grid">
-        <InfoCard
-          icon={Users}
-          title={t('Total usagers', 'Isan\'ny mpampiasa', 'Total users')}
-          value={filteredUsagers.length}
-          subtitle={t('Tous types confondus', 'Karazana rehetra', 'All types combined')}
-          color="#4f46e5"
-        />
-        <InfoCard
-          icon={UserCheck}
-          title={t('Validés', 'Voamarina', 'Validated')}
-          value={filteredUsagers.filter(u => u.statut === 'validee' || u.statut === 'approved').length}
-          subtitle={t('Dossiers approuvés', 'Rakitra nekena', 'Approved files')}
-          color="#059669"
-        />
-        <InfoCard
-          icon={Clock}
-          title={t('En attente', 'Miandry', 'Pending')}
-          value={filteredUsagers.filter(u => u.statut === 'en_attente' || u.statut === 'pending').length}
-          subtitle={t('Dossiers à vérifier', 'Rakitra hojerena', 'Files to verify')}
-          color="#d97706"
-        />
-        <InfoCard
-          icon={DollarSign}
-          title={t('Montant total', 'Vola total', 'Total amount')}
-          value={formatMontant(filteredUsagers.reduce((sum, u) => sum + (u.soit_total || 0), 0))}
-          subtitle={t('Cumul des montants', 'Fitambaran\'ny vola', 'Sum of amounts')}
-          color="#7c3aed"
-        />
+        <InfoCard icon={Users} title={t('Total usagers', 'Isan\'ny mpampiasa', 'Total users')} value={filteredUsagers.length} subtitle={t('Tous types confondus', 'Karazana rehetra', 'All types combined')} color="#4f46e5" />
+        <InfoCard icon={UserCheck} title={t('Validés', 'Voamarina', 'Validated')} value={filteredUsagers.filter(u => u.statut === 'validee' || u.statut === 'approved').length} subtitle={t('Dossiers approuvés', 'Rakitra nekena', 'Approved files')} color="#059669" />
+        <InfoCard icon={Clock} title={t('En attente', 'Miandry', 'Pending')} value={filteredUsagers.filter(u => u.statut === 'en_attente' || u.statut === 'pending').length} subtitle={t('Dossiers à vérifier', 'Rakitra hojerena', 'Files to verify')} color="#d97706" />
+        <InfoCard icon={DollarSign} title={t('Montant total', 'Vola total', 'Total amount')} value={formatMontant(montantTotalReel)} subtitle={t('Cumul des montants', 'Fitambaran\'ny vola', 'Sum of amounts')} color="#7c3aed" />
       </div>
 
       {/* Résultats */}
       <div className="results-container">
         <div className="results-header">
           <div className="results-info">
-            <h2>
-              <FolderOpen size={20} />
-              {t('Résultats de la recherche', 'Vokatry ny fikarohana', 'Search results')}
-            </h2>
+            <h2><FolderOpen size={20} />{t('Résultats de la recherche', 'Vokatry ny fikarohana', 'Search results')}</h2>
             <span className="results-count">
               {filteredUsagers.length}{' '}
               {filteredUsagers.length > 1
@@ -683,7 +659,6 @@ const VerificationUsager = () => {
           </div>
         </div>
 
-        {/* Tableau */}
         <div className="table-wrapper">
           <table className="usagers-table">
             <thead>
@@ -700,108 +675,97 @@ const VerificationUsager = () => {
             </thead>
             <tbody>
               {currentUsagers.length > 0 ? (
-                currentUsagers.map((usager) => (
-                  <tr
-                    key={usager.id}
-                    className={selectedUsager?.id === usager.id ? 'selected' : ''}
-                    onClick={() => setSelectedUsager(usager)}
-                  >
-                    <td className="dossier-cell">
-                      <span className="dossier-number">
-                        {usager.numero_dossier || 'N/A'}
-                      </span>
-                      {usager.quittance && (
-                        <span className="quittance-number">
-                          {t('Quittance', 'Taratasy', 'Receipt')}: {String(usager.quittance).padStart(7, '0')}
-                        </span>
-                      )}
-                      {usager.ref_omda && (
-                        <span className="ref-omda">
-                          OMDA: {usager.ref_omda}
-                        </span>
-                      )}
-                    </td>
-                    <td className="denomination-cell">
-                      <div className="denomination-name">
-                        {usager.denomination || usager.genre_manifestation || t('Sans nom', 'Tsy misy anarana', 'No name')}
-                      </div>
-                      <div className="denomination-details">
-                        {usager.artistes && typeof usager.artistes === 'string' && (
-                          <span className="artistes-count">
-                            <Music size={12} />
-                            {usager.artistes.split(',').length} {t('artistes', 'mpanakanto', 'artists')}
+                currentUsagers.map((usager) => {
+                  const montantReel = getMontantReelUsager(usager);
+                  const ref = getReferenceLabel(usager);
+                  return (
+                    <tr
+                      key={usager.id}
+                      className={selectedUsager?.id === usager.id ? 'selected' : ''}
+                      onClick={() => setSelectedUsager(usager)}
+                    >
+                      <td className="dossier-cell">
+                        <span className="dossier-number">{usager.numero_dossier || 'N/A'}</span>
+                        {usager.quittance_formate && (
+                          <span className="quittance-number">
+                            {t('Quittance', 'Taratasy', 'Receipt')}: {usager.quittance_formate}
                           </span>
                         )}
-                        {usager.lieu_evenement && (
-                          <span className="lieu-event">
-                            <MapPin size={12} />
-                            {usager.lieu_evenement}
+                        {/* ✅ OMDA pour les types normaux, DAF pour Other */}
+                        {usager.ref_omda && (
+                          <span className={`ref-omda ${usager.ref_client_type === 'OTH' ? 'ref-daf' : ''}`}>
+                            {ref.label}: {ref.value}
                           </span>
                         )}
-                        {usager.date_evenement && (
-                          <span className="date-event">
-                            <Calendar size={12} />
-                            {formatDate(usager.date_evenement)}
-                          </span>
+                      </td>
+                      <td className="denomination-cell">
+                        <div className="denomination-name">
+                          {usager.denomination || usager.genre_manifestation || t('Sans nom', 'Tsy misy anarana', 'No name')}
+                        </div>
+                        <div className="denomination-details">
+                          {usager.artistes && typeof usager.artistes === 'string' && (
+                            <span className="artistes-count">
+                              <Music size={12} />
+                              {usager.artistes.split(',').length} {t('artistes', 'mpanakanto', 'artists')}
+                            </span>
+                          )}
+                          {usager.lieu_evenement && (
+                            <span className="lieu-event">
+                              <MapPin size={12} />{usager.lieu_evenement}
+                            </span>
+                          )}
+                          {usager.date_evenement && (
+                            <span className="date-event">
+                              <Calendar size={12} />{formatDate(usager.date_evenement)}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>{getTypeBadge(usager.ref_client_type)}</td>
+                      <td className="demandeur-cell">
+                        <div className="demandeur-name">
+                          {usager.demandeur || usager.representant_par || 'N/A'}
+                        </div>
+                        {usager.personne_recu && (
+                          <div className="personne-recu">
+                            <User size={12} />{usager.personne_recu}
+                          </div>
                         )}
-                      </div>
-                    </td>
-                    <td>
-                      {getTypeBadge(usager.ref_client_type)}
-                    </td>
-                    <td className="demandeur-cell">
-                      <div className="demandeur-name">
-                        {usager.demandeur || usager.representant_par || 'N/A'}
-                      </div>
-                      {usager.personne_recu && (
-                        <div className="personne-recu">
-                          <User size={12} />
-                          {usager.personne_recu}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <div className="montant-total">
-                        {formatMontant(usager.soit_total)}
-                      </div>
-                      {usager.montant_mensuel > 0 && (
-                        <div className="montant-mensuel">
-                          × {usager.uniter || 1} {t('mois', 'volana', 'months')}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      {getStatusBadge(usager.statut)}
-                    </td>
-                    <td>
-                      <div className="date-creation">
-                        {formatDate(usager.created_at)}
-                      </div>
-                      {usager.createur_nom && (
-                        <div className="createur">
-                          {t('par', 'avy amin\'ny', 'by')} {usager.createur_nom}
-                        </div>
-                      )}
-                    </td>
-                    <td className="actions-cell">
-                      <button
-                        className="btn-action view"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedUsager(usager);
-                        }}
-                        title={t('Voir détails', 'Hijery antsipiriany', 'View details')}
-                      >
-                        <Eye size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td>
+                        <div className="montant-total">{formatMontant(montantReel)}</div>
+                        {usager.montant_mensuel > 0 && (
+                          <div className="montant-mensuel">
+                            × {usager.uniter || 1} {t('mois', 'volana', 'months')}
+                          </div>
+                        )}
+                      </td>
+                      <td>{getStatusBadge(usager.statut)}</td>
+                      <td>
+                        <div className="date-creation">{formatDate(usager.created_at)}</div>
+                        {usager.createur_nom && (
+                          <div className="createur">
+                            {t('par', 'avy amin\'ny', 'by')} {usager.createur_nom}
+                          </div>
+                        )}
+                      </td>
+                      <td className="actions-cell">
+                        <button
+                          className="btn-action view"
+                          onClick={(e) => { e.stopPropagation(); setSelectedUsager(usager); }}
+                          title={t('Voir détails', 'Hijery antsipiriany', 'View details')}
+                        >
+                          <Eye size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
                   <td colSpan="8" className="empty-state">
                     <AlertCircle size={32} />
-                    <p>{t('Aucun usager trouvé', 'Tsy misy mpampiasa hita', 'No user found')}</p>
+                    <p>{t('Aucun usager trouvé', 'Tsy misy mpampiasa hitа', 'No user found')}</p>
                     <span>{t('Modifiez vos critères de recherche', 'Ovay ny fepetra fikarohana', 'Change your search criteria')}</span>
                   </td>
                 </tr>
@@ -810,14 +774,9 @@ const VerificationUsager = () => {
           </table>
         </div>
 
-        {/* Pagination */}
         {totalPages > 1 && (
           <div className="pagination-modern">
-            <button
-              className="page-prev"
-              onClick={() => goToPage(currentPage - 1)}
-              disabled={currentPage === 1}
-            >
+            <button className="page-prev" onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1}>
               <ChevronLeft size={16} />
             </button>
             {[...Array(totalPages)].map((_, i) => (
@@ -829,54 +788,44 @@ const VerificationUsager = () => {
                 {i + 1}
               </button>
             ))}
-            <button
-              className="page-next"
-              onClick={() => goToPage(currentPage + 1)}
-              disabled={currentPage === totalPages}
-            >
+            <button className="page-next" onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages}>
               <ChevronRight size={16} />
             </button>
           </div>
         )}
       </div>
 
-      {/* Détails de l'usager sélectionné */}
       {selectedUsager && (
         <div className="detail-panel">
           <div className="detail-header">
             <div className="detail-header-left">
-              <h2>
-                <User size={20} />
-                {t('Fiche détaillée', 'Taratasy antsipiriany', 'Detailed sheet')}
-              </h2>
+              <h2><User size={20} />{t('Fiche détaillée', 'Taratasy antsipiriany', 'Detailed sheet')}</h2>
               <span className="detail-dossier">
                 {t('Dossier', 'Rakitra', 'File')}: {selectedUsager.numero_dossier || 'N/A'}
               </span>
-              {selectedUsager.quittance && (
+              {selectedUsager.quittance_formate && (
                 <span className="detail-quittance">
-                  {t('Quittance', 'Taratasy', 'Receipt')}: {String(selectedUsager.quittance).padStart(7, '0')}
+                  {t('Quittance', 'Taratasy', 'Receipt')}: {selectedUsager.quittance_formate}
                 </span>
               )}
             </div>
             <div className="detail-header-actions">
-              <button className="btn-close-detail" onClick={() => setSelectedUsager(null)}>
-                ×
-              </button>
+              <button className="btn-close-detail" onClick={() => setSelectedUsager(null)}>×</button>
             </div>
           </div>
 
           <div className="detail-content">
-            {/* En-tête profil */}
             <div className="profile-header">
               <div
                 className="profile-avatar"
                 style={{
-                  background: selectedUsager.ref_client_type === 'HTL' ? '#2196F3' :
-                             selectedUsager.ref_client_type === 'MGS' ? '#FF9800' :
-                             selectedUsager.ref_client_type === 'RDP' ? '#9C27B0' :
-                             selectedUsager.ref_client_type === 'TRP' ? '#F44336' :
-                             selectedUsager.ref_client_type === 'NGT' ? '#E91E63' :
-                             selectedUsager.ref_client_type === 'OCC' ? '#4CAF50' : '#757575'
+                  background:
+                    selectedUsager.ref_client_type === 'HTL' ? '#2196F3' :
+                    selectedUsager.ref_client_type === 'MGS' ? '#FF9800' :
+                    selectedUsager.ref_client_type === 'RDP' ? '#9C27B0' :
+                    selectedUsager.ref_client_type === 'TRP' ? '#F44336' :
+                    selectedUsager.ref_client_type === 'NGT' ? '#E91E63' :
+                    selectedUsager.ref_client_type === 'OCC' ? '#4CAF50' : '#757575',
                 }}
               >
                 {(selectedUsager.denomination || selectedUsager.genre_manifestation || 'U').substring(0, 2).toUpperCase()}
@@ -891,36 +840,22 @@ const VerificationUsager = () => {
                 </div>
                 <div className="profile-tags">
                   {selectedUsager.region_usager && (
-                    <span className="tag">
-                      <Map size={14} />
-                      {selectedUsager.region_usager}
-                    </span>
+                    <span className="tag"><MapIcon size={14} />{selectedUsager.region_usager}</span>
                   )}
                   {selectedUsager.date_evenement && (
-                    <span className="tag">
-                      <Calendar size={14} />
-                      {formatDate(selectedUsager.date_evenement)}
-                    </span>
+                    <span className="tag"><Calendar size={14} />{formatDate(selectedUsager.date_evenement)}</span>
                   )}
                   {selectedUsager.lieu_evenement && (
-                    <span className="tag">
-                      <MapPin size={14} />
-                      {selectedUsager.lieu_evenement}
-                    </span>
+                    <span className="tag"><MapPin size={14} />{selectedUsager.lieu_evenement}</span>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Grille de détails complète */}
             <div className="detail-single-card">
               <div className="detail-single-grid">
-                {/* Colonne gauche - Informations générales */}
                 <div className="detail-section">
-                  <h4>
-                    <Building size={16} />
-                    {t('Informations générales', 'Fampahalalana ankapobeny', 'General information')}
-                  </h4>
+                  <h4><Building size={16} />{t('Informations générales', 'Fampahalalana ankapobeny', 'General information')}</h4>
                   <div className="detail-row">
                     <span className="label">{t('Dénomination', 'Anarana', 'Name')} :</span>
                     <span className="value">{selectedUsager.denomination || 'N/A'}</span>
@@ -975,28 +910,18 @@ const VerificationUsager = () => {
                   </div>
                 </div>
 
-                {/* Colonne milieu - Coordonnées et Montants */}
                 <div className="detail-section">
-                  <h4>
-                    <MapPin size={16} />
-                    {t('Coordonnées', 'Fifandraisana', 'Contact details')}
-                  </h4>
+                  <h4><MapPin size={16} />{t('Coordonnées', 'Fifandraisana', 'Contact details')}</h4>
                   <div className="detail-row">
-                    <span className="label">
-                      <Smartphone size={14} /> {t('Téléphone', 'Finday', 'Phone')} :
-                    </span>
+                    <span className="label"><Smartphone size={14} /> {t('Téléphone', 'Finday', 'Phone')} :</span>
                     <span className="value">{selectedUsager.telephone || 'N/A'}</span>
                   </div>
                   <div className="detail-row">
-                    <span className="label">
-                      <AtSign size={14} /> Email :
-                    </span>
+                    <span className="label"><AtSign size={14} /> Email :</span>
                     <span className="value">{selectedUsager.email || 'N/A'}</span>
                   </div>
                   <div className="detail-row">
-                    <span className="label">
-                      <HomeIcon size={14} /> {t('Adresse', 'Adiresy', 'Address')} :
-                    </span>
+                    <span className="label"><HomeIcon size={14} /> {t('Adresse', 'Adiresy', 'Address')} :</span>
                     <span className="value">{selectedUsager.adresse || 'N/A'}</span>
                   </div>
                   {selectedUsager.domicile && (
@@ -1042,10 +967,7 @@ const VerificationUsager = () => {
                     </div>
                   )}
 
-                  <h4 style={{ marginTop: '16px' }}>
-                    <DollarSign size={16} />
-                    {t('Montants', 'Vola', 'Amounts')}
-                  </h4>
+                  <h4 style={{ marginTop: '16px' }}><DollarSign size={16} />{t('Montants', 'Vola', 'Amounts')}</h4>
                   <div className="detail-row">
                     <span className="label">{t('Montant mensuel', 'Vola isam-bolana', 'Monthly amount')} :</span>
                     <span className="value">{formatMontant(selectedUsager.montant_mensuel)}</span>
@@ -1060,7 +982,7 @@ const VerificationUsager = () => {
                   </div>
                   <div className="detail-row total-row">
                     <span className="label">{t('Total', 'Totaly', 'Total')} :</span>
-                    <span className="value">{formatMontant(selectedUsager.soit_total)}</span>
+                    <span className="value">{formatMontant(getMontantReelUsager(selectedUsager))}</span>
                   </div>
                   <div className="detail-row">
                     <span className="label">{t('Unité', 'Isan\'ny', 'Unit')} :</span>
@@ -1074,18 +996,17 @@ const VerificationUsager = () => {
                   )}
                 </div>
 
-                {/* Colonne droite - Références et Artistes */}
                 <div className="detail-section">
-                  <h4>
-                    <FileText size={16} />
-                    {t('Références', 'Fanondroana', 'References')}
-                  </h4>
+                  <h4><FileText size={16} />{t('Références', 'Fanondroana', 'References')}</h4>
                   <div className="detail-row">
                     <span className="label">{t('N° Dossier', 'N° Rakitra', 'File N°')} :</span>
                     <span className="value">{selectedUsager.numero_dossier || 'N/A'}</span>
                   </div>
+                  {/* ✅ DAF pour OTH, OMDA sinon */}
                   <div className="detail-row">
-                    <span className="label">Ref OMDA :</span>
+                    <span className="label">
+                      {selectedUsager.ref_client_type === 'OTH' ? 'DAF' : 'Ref OMDA'} :
+                    </span>
                     <span className="value">{selectedUsager.ref_omda || 'N/A'}</span>
                   </div>
                   <div className="detail-row">
@@ -1098,9 +1019,7 @@ const VerificationUsager = () => {
                   </div>
                   <div className="detail-row">
                     <span className="label">{t('Quittance', 'Taratasy', 'Receipt')} :</span>
-                    <span className="value">
-                      {selectedUsager.quittance ? String(selectedUsager.quittance).padStart(7, '0') : 'N/A'}
-                    </span>
+                    <span className="value">{selectedUsager.quittance_formate || 'N/A'}</span>
                   </div>
                   <div className="detail-row">
                     <span className="label">{t('Créé par', 'Noforonin\'ny', 'Created by')} :</span>
@@ -1109,15 +1028,10 @@ const VerificationUsager = () => {
 
                   {selectedUsager.artistes && typeof selectedUsager.artistes === 'string' && (
                     <>
-                      <h4 style={{ marginTop: '16px' }}>
-                        <Music size={16} />
-                        {t('Artistes participants', 'Mpanakanto mpandray anjara', 'Participating artists')}
-                      </h4>
+                      <h4 style={{ marginTop: '16px' }}><Music size={16} />{t('Artistes participants', 'Mpanakanto mpandray anjara', 'Participating artists')}</h4>
                       <div className="artistes-list">
                         {selectedUsager.artistes.split(',').map((artiste, index) => (
-                          <span key={index} className="artiste-tag">
-                            {artiste.trim()}
-                          </span>
+                          <span key={index} className="artiste-tag">{artiste.trim()}</span>
                         ))}
                       </div>
                     </>
@@ -1126,12 +1040,8 @@ const VerificationUsager = () => {
               </div>
             </div>
 
-            {/* Actions */}
             <div className="detail-actions">
-              <button
-                className="btn-back"
-                onClick={() => navigate('/dashboard')}
-              >
+              <button className="btn-back" onClick={() => navigate('/dashboard')}>
                 <ArrowLeft size={18} />
                 {t('Retour au tableau de bord', 'Hiverina amin\'ny tabilao', 'Back to dashboard')}
               </button>

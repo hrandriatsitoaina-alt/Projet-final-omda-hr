@@ -1,5 +1,5 @@
 // ============================================================
-// COMPOSANT : BilanCards.jsx (version finale — année en cours)
+// COMPOSANT : BilanCards.jsx (version finale — année en cours + OCC inclus)
 // ============================================================
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -20,6 +20,23 @@ import {
 import { useT } from '../hooks/useT';
 
 const API_URL = 'http://localhost:3001/api';
+
+// ============================================================
+// ✅ HELPER : inclure un paiement pour l'année en cours
+//    - Si annee === currentYear → OUI
+//    - Si type_paiement = 'unique' (OCC) → OUI (toujours, car annee peut être NULL)
+//    - Sinon → NON
+// ============================================================
+const matchAnneeCourante = (paiement, currentYear) => {
+  if (!paiement) return false;
+  if (paiement.statut !== 'paye') return false;
+
+  // OCC = paiement unique → toujours inclus (même si annee = NULL)
+  if (paiement.type_paiement === 'unique') return true;
+
+  // Sinon on compare l'année
+  return Number(paiement.annee) === currentYear;
+};
 
 const BilanCards = () => {
   const navigate = useNavigate();
@@ -94,19 +111,15 @@ const BilanCards = () => {
   }, []);
 
   // ============================================================
-  // ✅ CALCULS — UNIQUEMENT L'ANNÉE EN COURS
-  //    Filtre : statut === 'paye' ET annee === currentYear
+  // ✅ CALCULS — ANNÉE EN COURS + OCC (toujours inclus)
   // ============================================================
 
-  // 1) Filtrer : paye + année en cours
+  // 1) Filtrer : paye + année en cours + OCC (toujours)
   const paiementsPayes = useMemo(() => {
-    return paiementsRaw.filter(p =>
-      p.statut === 'paye' &&
-      Number(p.annee) === currentYear
-    );
+    return paiementsRaw.filter(p => matchAnneeCourante(p, currentYear));
   }, [paiementsRaw, currentYear]);
 
-  // 2) ✅ Montant total = SUM(montant) UNIQUEMENT, pour l'année en cours
+  // 2) ✅ Montant total = SUM(montant) UNIQUEMENT
   const totalMontant = useMemo(() => {
     return paiementsPayes.reduce(
       (sum, p) => sum + (parseFloat(p.montant) || 0),
@@ -128,11 +141,11 @@ const BilanCards = () => {
   // 4) Total usagers
   const totalUsagers = usagersRaw.length;
 
-  // 5) Non payés (pour l'année en cours)
+  // 5) Non payés
   const enAttente = Math.max(0, totalUsagers - totalPayes);
 
   // ============================================================
-  // ✅ RÉPARTITION PAR CATÉGORIE (année en cours uniquement)
+  // ✅ RÉPARTITION PAR CATÉGORIE (année en cours + OCC inclus)
   // ============================================================
   const typeColors = {
     hotel: '#E53935',
@@ -147,7 +160,7 @@ const BilanCards = () => {
   const typeLabels = useMemo(() => ({
     hotel:           t('Hôtel',          'Trano fandraisam-bahiny',      'Hotel'),
     'grand-surface': t('Grande Surface', 'Trano fivarotana lehibe',      'Supermarket'),
-    bus:             t('Bus',            'Fiarakodia',                   'Bus'),
+    bus:             t('Transport',      'Fitanterana',                  'Transport'),
     nightclub:       t('Night Club',     'Kliobina alina',               'Night Club'),
     media:           t('Média',          'Haino aman-jery',              'Media'),
     occ:             t('Occasionnelle',  'Tsindraindray',                'Occasional'),
@@ -159,7 +172,8 @@ const BilanCards = () => {
     []
   );
 
-  // ✅ Répartition : on somme UNIQUEMENT le champ `montant` (année en cours)
+  // ✅ Répartition : somme UNIQUEMENT `montant`
+  //    Les OCC sont désormais inclus grâce à matchAnneeCourante
   const montantsParType = useMemo(() => {
     const map = {};
     for (const key of legendOrder) map[key] = 0;

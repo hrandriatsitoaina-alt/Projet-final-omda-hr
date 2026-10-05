@@ -7,9 +7,6 @@ import {
   getPdfLocale,
 } from './pdfI18n';
 
-// ============================================================
-// ✅ NOMS PROPRES INSTITUTIONNELS FIXES (jamais traduits)
-// ============================================================
 const NOMS_FIXES = {
   OMDA_NOM: 'OFFICE MALAGASY DU DROIT D\'AUTEUR',
   OMDA_SIGLE: '( OMDA )',
@@ -19,10 +16,6 @@ const NOMS_FIXES = {
   ADRESSE_LIGNE: 'Lot IIF 62, Fredy Rajaofera - Antaninandro - ANTANANARIVO - 101  |  Contacts : 034 05 533 88  |  mail: omda@moov.mg',
   STAT_NIF: 'Stat. N° 84212 11 2014 0 02912  •  NIF 4000 566 726',
 };
-
-// ============================================================
-// FONCTIONS UTILITAIRES EXPORTÉES
-// ============================================================
 
 export const formatDate = (dateString, langue = 'fr') => {
   if (!dateString) return '';
@@ -53,8 +46,16 @@ export const formatDateLong = (dateString, langue = 'fr') => {
   }
 };
 
-// ✅ Conversion en lettres (FR uniquement — inchangé)
+// ============================================================
+// CONVERSION NOMBRE EN LETTRES (FR / EN)
+//   - 'fr' → français
+//   - 'en' → anglais
+//   - 'mg' → PAS DE CONVERSION (retourne '' — la ligne affichera les chiffres)
+// ============================================================
 function numberToWords(num, langue = 'fr') {
+  if (langue === 'mg') return '';
+  if (langue === 'en') return numberToWordsEnglish(num);
+
   if (num === 0) return 'Zéro Ariary';
   if (num < 0) return 'Moins ' + numberToWords(Math.abs(num), langue);
 
@@ -103,8 +104,59 @@ function numberToWords(num, langue = 'fr') {
 }
 
 // ============================================================
-// ✅ Secours : lit la langue stockée par ParametreContext
+// CONVERSION NOMBRE EN LETTRES — ANGLAIS
 // ============================================================
+function numberToWordsEnglish(num) {
+  if (num === 0) return 'Zero Ariary';
+  if (num < 0) return 'Minus ' + numberToWordsEnglish(Math.abs(num));
+
+  const ones = [
+    '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
+    'Seventeen', 'Eighteen', 'Nineteen'
+  ];
+  const tens = [
+    '', '', 'Twenty', 'Thirty', 'Forty', 'Fifty',
+    'Sixty', 'Seventy', 'Eighty', 'Ninety'
+  ];
+
+  function convert(n) {
+    if (n === 0) return '';
+    if (n < 20) return ones[n];
+    if (n < 100) {
+      const t = Math.floor(n / 10);
+      const u = n % 10;
+      return tens[t] + (u > 0 ? '-' + ones[u] : '');
+    }
+    if (n < 1000) {
+      const h = Math.floor(n / 100);
+      const r = n % 100;
+      let result = ones[h] + ' Hundred';
+      if (r > 0) result += ' and ' + convert(r);
+      return result;
+    }
+    if (n < 1000000) {
+      const th = Math.floor(n / 1000);
+      const r = n % 1000;
+      let result = convert(th) + ' Thousand';
+      if (r > 0) result += ' ' + convert(r);
+      return result;
+    }
+    if (n < 1000000000) {
+      const m = Math.floor(n / 1000000);
+      const r = n % 1000000;
+      let result = convert(m) + ' Million';
+      if (r > 0) result += ' ' + convert(r);
+      return result;
+    }
+    return 'Number too large';
+  }
+
+  const ariary = Math.floor(num);
+  let result = convert(ariary);
+  return result + ' Ariary';
+}
+
 const lireLangueDepuisStorage = () => {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return null;
@@ -115,13 +167,8 @@ const lireLangueDepuisStorage = () => {
   }
 };
 
-// ============================================================
-// FONCTION PRINCIPALE - GENERATION FACTURE
-// ✅ Signature étendue : (factureData, returnBlob, options)
-// ============================================================
 export const generateFacturePDF = async (factureData, returnBlob = false, options = {}) => {
   try {
-    // ✅ Langue : priorité à options.langue, sinon localStorage, sinon 'fr'
     const langue = options.langue || lireLangueDepuisStorage() || 'fr';
     const t = createPdfT(langue);
     const locale = getPdfLocale(langue);
@@ -149,17 +196,13 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     const marginX = 20;
     let yPos = 8;
 
-    // ========================================================================
-    // 1 - LOGO
-    // ========================================================================
+    // LOGO
     const logoWidth = 65;
     const logoHeight = 20;
     doc.addImage(logoRepoblika, 'JPEG', (pageWidth / 2) - (logoWidth / 2), yPos, logoWidth, logoHeight);
     yPos += logoHeight + 6;
 
-    // ============================================================
-    // 2 - EN-TÊTE ADMINISTRATIF — NOMS FIXES
-    // ============================================================
+    // EN-TÊTE
     doc.setFont('times', 'bold');
     doc.setFontSize(9);
     doc.text(NOMS_FIXES.MINISTERE_LIGNE_1, marginX + 8, yPos);
@@ -178,7 +221,6 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     doc.text('********', marginX + 30, yPos);
     yPos += 5.5;
 
-    // ✅ NOM OFFICIEL FIXE — identique dans les 3 langues
     doc.setFont('times', 'bold');
     doc.setFontSize(10);
     doc.text(NOMS_FIXES.OMDA_NOM, marginX, yPos);
@@ -207,9 +249,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     doc.text(NOMS_FIXES.OMDA_SIGLE, marginX + (omdaWidth / 2), yPos, { align: 'center' });
     yPos += 12;
 
-    // ========================================================================
-    // 3 - RÉFÉRENCES
-    // ========================================================================
+    // RÉFÉRENCES
     const refOmda = factureData.ref_omda || '001';
     const numFacture = factureData.num_facture || refOmda;
     const refClientType = factureData.ref_client_type || 'AUT';
@@ -245,9 +285,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     doc.setTextColor(17, 17, 17);
     yPos += 10;
 
-    // ========================================================================
-    // 4 - BLOC CLIENT
-    // ========================================================================
+    // BLOC CLIENT
     const boxWidth = pageWidth - (marginX * 2);
     const boxHeight = 34;
 
@@ -301,7 +339,6 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     doc.setDrawColor(229, 229, 229);
     doc.rect(marginX, yPos, boxWidth, finalBoxHeight, 'FD');
 
-    // Réécriture
     clientY = yPos + 6;
     doc.setFont('times', 'bold');
     doc.text(`${t('Doit', 'Tokony handoa', 'Owes')} :`, labelX, clientY);
@@ -327,9 +364,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
 
     yPos += finalBoxHeight + 8;
 
-    // ========================================================================
-    // 5 - RÉCUPÉRATION DES MONTANTS (inchangé)
-    // ========================================================================
+    // RÉCUPÉRATION DES MONTANTS
     let montantMensuel = 0;
     let fraisDossier = 0;
     let montantRetard = 0;
@@ -424,7 +459,6 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
       }
     }
 
-    // Déduction depuis soit_total
     if (montantMensuel === 0 && factureData.soit_total && parseFloat(factureData.soit_total) > 0) {
       const soitTotalValue = parseFloat(factureData.soit_total) || 0;
       const retardValue = isRetard ? montantRetard : 0;
@@ -443,9 +477,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
       totalGeneral = parseFloat(factureData.soit_total);
     }
 
-    // ========================================================================
-    // 6 - TABLEAU
-    // ========================================================================
+    // TABLEAU
     const xDesc = marginX;
     const xU = 125;
     const xPu = 140;
@@ -485,13 +517,6 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     doc.setFont('times', 'normal');
     doc.setFontSize(10);
 
-    // ============================================================
-    // ✅ CONSTRUCTION DE LA DESCRIPTION — SIMPLIFIÉE
-    // Uniquement "Nom - Activité", plus aucun élément additionnel
-    // (étoiles, ville, magasins, artistes, dates, lignes, jauge,
-    // fréquence, etc.) afin d'éviter tout débordement dans la
-    // colonne "U." du tableau.
-    // ============================================================
     const nomPrincipal = factureData.denomination || factureData.demandeur || factureData.organisateurs || t('Prestation OMDA', 'Tolotra OMDA', 'OMDA Service');
     let descLine = nomPrincipal;
 
@@ -522,7 +547,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     doc.setDrawColor(235, 235, 235);
     doc.line(xDesc, yPos, xEnd, yPos);
 
-    // ✅ FRAIS DE DOSSIER
+    // FRAIS DE DOSSIER
     yPos += 6;
     doc.setDrawColor(26, 26, 26);
     doc.setFont('times', 'normal');
@@ -533,7 +558,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     doc.text(formatNumber(fraisDossier), xEnd - 3, yPos, { align: 'right' });
     yPos += 4;
 
-    // ✅ PÉNALITÉ DE RETARD
+    // PÉNALITÉ DE RETARD
     if (isRetard && montantRetard > 0) {
       yPos += 6;
       doc.text(t('Pénalité de retard', 'Sazy noho ny fahatarana', 'Late penalty'), xDesc + 3, yPos);
@@ -543,7 +568,6 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
       yPos += 4;
     }
 
-    // ✅ LIGNES DE FERMETURE
     doc.line(xDesc, yPos, xEnd, yPos);
     doc.line(xDesc, tableStartHeight, xDesc, yPos);
     doc.line(xU, tableStartHeight, xU, yPos);
@@ -551,9 +575,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     doc.line(xMnt, tableStartHeight, xMnt, yPos);
     doc.line(xEnd, tableStartHeight, xEnd, yPos);
 
-    // ========================================================================
-    // 7 - TOTAL
-    // ========================================================================
+    // TOTAL
     const totalValue = totalGeneral;
     doc.setFillColor(248, 248, 248);
     doc.rect(xMnt, yPos, xEnd - xMnt, 8, 'FD');
@@ -564,9 +586,9 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     doc.text(t('TOTAL', 'TOTALY', 'TOTAL'), xDesc + 3, yPos + 5.5);
     doc.text(formatNumber(totalValue), xEnd - 3, yPos + 5.5, { align: 'right' });
 
-    // ========================================================================
-    // 8 - SOMME EN LETTRES
-    // ========================================================================
+    // ============================================================
+    // SOMME EN LETTRES — CORRIGÉ
+    // ============================================================
     yPos += 10;
     doc.setDrawColor(200, 200, 200);
     doc.setLineWidth(0.2);
@@ -582,17 +604,23 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
       'This invoice is set at the amount of: '
     );
     doc.text(phrase, marginX, yPos);
-    doc.setFont('times', 'italic');
-    const phraseWidth = doc.getTextWidth(phrase);
+
     const montantLettres = numberToWords(totalValue, langue);
-    doc.text(montantLettres, marginX + phraseWidth + 5, yPos);
+    const phraseWidth = doc.getTextWidth(phrase);
+    doc.setFont('times', 'italic');
+
+    if (montantLettres) {
+      // 🇫🇷 FR / 🇬🇧 EN → texte en lettres
+      doc.text(montantLettres, marginX + phraseWidth + 5, yPos);
+    } else {
+      // 🇲🇬 MG → chiffres + "Ar"
+      doc.text(`${formatNumber(totalValue)} Ar`, marginX + phraseWidth + 5, yPos);
+    }
 
     yPos += 4;
     doc.line(marginX, yPos, xEnd, yPos);
 
-    // ========================================================================
-    // 9 - SIGNATURES
-    // ========================================================================
+    // SIGNATURES
     yPos += 12;
     doc.setFont('times', 'bold');
     doc.setTextColor(17, 17, 17);
@@ -630,9 +658,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     const personneRecuValue = factureData.personne_recu || responsable || '________________________';
     doc.text(`${t('Par', 'Avy amin\'ny', 'By')} : ${personneRecuValue}`, marginX, yPos);
 
-    // ========================================================================
-    // 10 - PIED DE PAGE — ADRESSE ET STAT/NIF FIXES
-    // ========================================================================
+    // PIED DE PAGE
     const footerY = 274;
     doc.setDrawColor(180, 180, 180);
     doc.setLineWidth(0.25);
@@ -645,9 +671,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     doc.setFont('times', 'bold');
     doc.text(NOMS_FIXES.STAT_NIF, pageWidth / 2, footerY + 8, { align: 'center' });
 
-    // ========================================================================
-    // 11 - SORTIE
-    // ========================================================================
+    // SORTIE
     if (returnBlob) {
       return doc.output('blob');
     }

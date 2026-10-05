@@ -462,7 +462,7 @@ const RepartitionArtister = () => {
               : (<><Download size={16} /> PDF</>)}
           </button>
           <button className="btn-back-dashboard" onClick={handleBackToDashboard}>
-            <ArrowLeft size={16} /><Home size={16} /><span>{t('Dashboard', 'Dashboard', 'Dashboard')}</span>
+            <ArrowLeft size={16} /><Home size={16} /><span>{t('Accueil', 'Fandraisana', 'Dashboard')}</span>
           </button>
         </div>
       </div>

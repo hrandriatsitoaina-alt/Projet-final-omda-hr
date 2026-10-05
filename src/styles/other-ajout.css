@@ -1126,7 +1126,173 @@
     background: #f8fafc;
     border-radius: 0 0 16px 16px;
   }
+  /* ============================================================
+   ✅ BLOC AJOUT RÉGION — 4 CHAMPS + BOUTONS CENTRÉS
+   ============================================================ */
+.oa-add-region-box {
+  padding: 20px;
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.oa-add-region-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 15px;
+}
+
+.oa-add-region-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.oa-add-region-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #495057;
+}
+
+.oa-add-region-field input {
+  padding: 9px 11px;
+  border: 1.5px solid var(--oa-border, #dce1e8);
+  border-radius: 8px;
+  font-size: 13.5px;
+  background: #fff;
+  font-family: inherit;
+  width: 100%;
+}
+
+.oa-add-region-field input:focus {
+  outline: none;
+  border-color: var(--oa-primary, #3498db);
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.12);
+}
+
+.oa-add-region-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+}
+
+.oa-btn-confirm-region {
+  min-width: 130px;
+  padding: 9px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--oa-success, #27ae60);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s ease;
+}
+
+.oa-btn-confirm-region:hover {
+  background: #219a52;
+}
+
+.oa-btn-cancel-region {
+  min-width: 130px;
+  padding: 9px 18px;
+  border: 1.5px solid #ccc;
+  border-radius: 8px;
+  background: #fff;
+  color: #555;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.oa-btn-cancel-region:hover {
+  background: #f0f0f0;
+  border-color: #999;
+}
+/* ============================================================
+   ✅ PAGE FINALE — GÉNÉRATION FACTURE + QR
+   ============================================================ */
+
+   .oa-doc-done {
+    box-shadow: 0 4px 14px rgba(39, 174, 96, 0.15) !important;
+  }
   
+  .oa-doc-done:hover {
+    transform: none !important;
+  }
+  
+  .oa-spin {
+    animation: oaSpin 1s linear infinite;
+  }
+  
+  @keyframes oaSpin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  /* ========== TYPE FACTURE DAFC / SFL ========== */
+.oa-type-facture-options {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.oa-type-facture-option {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border: 2px solid #e9ecef;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #ffffff;
+}
+
+.oa-type-facture-option:hover {
+  border-color: #ced4da;
+}
+
+.oa-type-facture-option.active {
+  border-color: #0d6efd;
+  background: #f0f7ff;
+}
+
+.oa-type-facture-option input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #0d6efd;
+  flex-shrink: 0;
+}
+
+.oa-type-facture-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.oa-type-facture-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #212529;
+  letter-spacing: 0.5px;
+}
+
+.oa-type-facture-desc {
+  font-size: 13px;
+  color: #6c757d;
+}
+
   /* ============================================================
      RESPONSIVE
      ============================================================ */

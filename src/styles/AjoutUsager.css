@@ -6,10 +6,10 @@
 .custom-select-wrapper {
   position: relative;
   width: 350px;
-  z-index: 999; /* Inférieur au header (1000) */
+  z-index: 999;
 }
 .custom-select-options {
-  z-index: 998 !important; /* Encore inférieur */
+  z-index: 998 !important;
 }
 .type-selection-container {
   overflow: visible !important;
@@ -352,7 +352,6 @@ fieldset legend svg {
   width: 100%;
   max-width: 100%;
 }
-
 .input-date:focus {
   outline: none;
   border-color: #3d99f5;
@@ -372,7 +371,6 @@ fieldset legend svg {
   width: 100%;
   max-width: 100%;
 }
-
 .input-lieu:focus {
   outline: none;
   border-color: #3d99f5;
@@ -381,7 +379,6 @@ fieldset legend svg {
 
 /* ============================================================
    ✅ CORRECTION : FORM INPUT HORIZONTAL (responsive)
-   Empêche le débordement quand l'écran est petit
    ============================================================ */
 .form-input-horizontal {
   display: flex;
@@ -391,7 +388,6 @@ fieldset legend svg {
   width: 100%;
   min-width: 0;
 }
-
 .form-input-horizontal > input,
 .form-input-horizontal > select {
   flex: 1 1 140px;
@@ -399,7 +395,6 @@ fieldset legend svg {
   max-width: 100%;
   box-sizing: border-box;
 }
-
 .form-input-horizontal > span {
   flex: 0 0 auto;
   white-space: nowrap;
@@ -591,7 +586,7 @@ select.input-style {
 }
 
 /* ============================================================
-   CORRECTION RÉCAPITULATIF – TEXTE BIEN VISIBLE
+   ✅ RÉCAPITULATIF – VERSION CORRIGÉE ET ORGANISÉE
    ============================================================ */
 
 .recap-container {
@@ -614,23 +609,25 @@ select.input-style {
 /* === INFO UTILISATEUR === */
 .user-info-recap {
   background: #e8f4f8;
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-radius: 10px;
   margin-bottom: 20px;
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 16px 24px;
   font-size: 14px;
   border: 1px solid #d0e4f0;
+  border-left: 4px solid #007bff;
 }
 
 .user-info-recap p {
   margin: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   color: #1a3a5c !important;
   font-weight: 500;
+  line-height: 1.4;
 }
 
 .user-info-recap p strong {
@@ -640,12 +637,14 @@ select.input-style {
 
 .user-info-recap svg {
   color: #007bff;
+  flex-shrink: 0;
 }
 
 /* === TABLEAU RÉCAPITULATIF === */
 .recap-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   background: white;
   border-radius: 12px;
   overflow: hidden;
@@ -658,15 +657,20 @@ select.input-style {
   vertical-align: middle;
   color: #1a3a5c !important;
   font-size: 15px;
+  line-height: 1.5;
 }
 
 /* === PREMIÈRE COLONNE (libellés) === */
 .recap-table td:first-child {
-  width: 35%;
+  width: 38%;
   font-weight: 600;
   color: #0a2a4a !important;
   background: #f5f8fa;
-  display: flex;
+}
+
+/* Utilisation d'un wrapper interne pour aligner icône + texte */
+.recap-table td:first-child > * {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
 }
@@ -674,12 +678,14 @@ select.input-style {
 .recap-table td:first-child svg {
   color: #3d99f5;
   flex-shrink: 0;
+  vertical-align: middle;
 }
 
 /* === DEUXIÈME COLONNE (valeurs) === */
 .recap-table td:last-child {
   color: #1a3a5c !important;
   font-weight: 500;
+  word-break: break-word;
 }
 
 .recap-table td:last-child strong {
@@ -689,7 +695,49 @@ select.input-style {
 
 /* === VALEUR DU TOTAL (vert) === */
 .recap-table td:last-child .total-value {
+  display: inline-block;
+  padding: 4px 14px;
+  background: #e8f5e9;
+  border-radius: 20px;
   color: #28a745 !important;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+/* === STATUT "NON ACTIF" (badge rouge) === */
+.recap-table td .status-inactive {
+  display: inline-block;
+  padding: 4px 14px;
+  background: #fde8e8;
+  border-radius: 20px;
+  color: #dc3545;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* === STATUT "ACTIF" (badge vert) === */
+.recap-table td .status-active {
+  display: inline-block;
+  padding: 4px 14px;
+  background: #e8f5e9;
+  border-radius: 20px;
+  color: #28a745;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* === LIGNE "SOIT TOTAL" mise en avant (dernière ligne) === */
+.recap-table tr.total-row td {
+  background: #f0fdf4;
+  border-top: 2px solid #28a745;
+  border-bottom: none;
+}
+.recap-table tr.total-row td:first-child {
+  background: #e8f5e9;
+  color: #1e7e34 !important;
+  font-weight: 700;
+}
+.recap-table tr.total-row td:last-child {
   font-weight: 700;
 }
 
@@ -697,29 +745,89 @@ select.input-style {
 .recap-table tr:hover td {
   background: #f8fcff;
 }
-
 .recap-table tr:hover td:first-child {
   background: #eef4fa;
 }
+.recap-table tr.total-row:hover td {
+  background: #e8f5e9;
+}
+.recap-table tr.total-row:hover td:first-child {
+  background: #d4edda;
+}
 
-/* === RESPONSIVE === */
+/* === RESPONSIVE RÉCAP === */
 @media (max-width: 768px) {
+  .user-info-recap {
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+  .user-info-recap p {
+    font-size: 13px;
+  }
+
+  .recap-container {
+    padding: 16px;
+  }
+  .recap-container h3 {
+    font-size: 17px;
+  }
+
+  .recap-table,
+  .recap-table tbody,
+  .recap-table tr,
+  .recap-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .recap-table tr {
+    margin-bottom: 10px;
+    border: 1px solid #e8edf2;
+    border-radius: 10px;
+    overflow: hidden;
+    background: white;
+  }
+
+  .recap-table td {
+    border-bottom: none;
+    padding: 10px 14px;
+  }
+
   .recap-table td:first-child {
     width: 100%;
-    display: block;
     background: #f0f4f8;
+    font-size: 13px;
     padding: 8px 14px;
-    margin-bottom: 2px;
-    font-weight: 600;
-  }
-  .recap-table td:last-child {
-    display: block;
-    width: 100%;
-    padding: 6px 14px 12px;
     border-bottom: 1px solid #e8edf2;
   }
-  .recap-table tr:last-child td:last-child {
-    border-bottom: none;
+
+  .recap-table td:last-child {
+    padding: 10px 14px 14px;
+    font-size: 14px;
+  }
+
+  .recap-table tr.total-row td:first-child {
+    background: #d4edda;
+  }
+}
+
+@media (max-width: 480px) {
+  .recap-container h3 {
+    font-size: 15px;
+  }
+  .user-info-recap p {
+    font-size: 12px;
+  }
+  .recap-table td:first-child {
+    font-size: 12px;
+  }
+  .recap-table td:last-child {
+    font-size: 13px;
+  }
+  .recap-table td:last-child .total-value {
+    font-size: 14px;
+    padding: 3px 10px;
   }
 }
 
@@ -839,19 +947,6 @@ select.input-style {
   .btn-cancel, .btn-secondary, .btn-primary {
     width: 100%;
     justify-content: center;
-  }
-  .recap-container { padding: 16px; }
-  .recap-table td:first-child {
-    width: 100%;
-    display: block;
-    background: #f0f4f8;
-    padding: 6px 12px;
-    margin-bottom: 4px;
-  }
-  .recap-table td {
-    display: block;
-    width: 100%;
-    border-bottom: none;
   }
 }
 

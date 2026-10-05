@@ -12,7 +12,6 @@ import {
   ArrowLeft,
   Music,
   User,
-  Mail,
   Phone,
   DollarSign,
   Tag,
@@ -30,36 +29,42 @@ import {
   Activity,
   Layers,
   RefreshCw,
+  Info,
 } from 'lucide-react';
 
 import MiniSidebar from '../components/MiniSidebar';
-// ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
 import '../styles/date_occ.css';
 
 const DateOcc = () => {
   const navigate = useNavigate();
-
-  // ✅ LANGUE UNIQUE — vient du Context
   const { t, langue } = useT();
 
-  // ✅ Locale pour les dates (mg → fr-MG, pas mg-MG)
   const locale = useMemo(() => {
     if (langue === 'en') return 'en-US';
     if (langue === 'mg') return 'fr-MG';
     return 'fr-FR';
   }, [langue]);
 
-  // Filtres
+  // ============================================================
+  // FILTRES
+  // ============================================================
   const [searchTerm, setSearchTerm] = useState('');
   const [referenceId, setReferenceId] = useState('');
   const [selectedDay, setSelectedDay] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
-  const [selectedRegion, setSelectedRegion] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState('');   // nom (pour le select)
+  const [selectedVille, setSelectedVille] = useState('');     // nom (pour le select)
 
-  // Données
-  const [regionsDisponibles, setRegionsDisponibles] = useState([]);
+  // ✅ NOUVEAU : IDs pour filtrage exact
+  const [selectedRegionId, setSelectedRegionId] = useState(null);
+  const [selectedVilleId, setSelectedVilleId] = useState(null);
+
+  // ============================================================
+  // DONNÉES
+  // ============================================================
+  const [regionsAvecVilles, setRegionsAvecVilles] = useState([]);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -67,8 +72,17 @@ const DateOcc = () => {
   const [availableYears, setAvailableYears] = useState([]);
 
   // ============================================================
-  // ✅ MOIS traduits selon la langue (via useMemo)
+  // HELPERS
   // ============================================================
+  const normalizeStr = useCallback((str) => {
+    if (!str) return '';
+    return String(str)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }, []);
+
   const MONTHS = useMemo(() => [
     { value: 'janvier',   label: t('Janvier',   'Janoary',   'January') },
     { value: 'février',   label: t('Février',   'Febroary',  'February') },
@@ -83,6 +97,117 @@ const DateOcc = () => {
     { value: 'novembre',  label: t('Novembre',  'Novambra',  'November') },
     { value: 'décembre',  label: t('Décembre',  'Desambra',  'December') },
   ], [t]);
+
+  // ============================================================
+  // ✅ LISTE PLATE DE TOUTES LES VILLES (avec leur région et ID)
+  // ============================================================
+  const toutesLesVilles = useMemo(() => {
+    const liste = [];
+    regionsAvecVilles.forEach((r) => {
+      const villes = Array.isArray(r.villes) ? r.villes : [];
+      villes.forEach((v) => {
+        const nomVille = String(v.nom || v.ville || '').trim();
+        if (nomVille) {
+          liste.push({
+            ville: nomVille,
+            region: r.nom,
+            quartier: v.quartier || '',
+            telephone: v.telephone || '',
+            villeId: v.id,
+            regionId: r.id,
+          });
+        }
+      });
+    });
+    return liste;
+  }, [regionsAvecVilles]);
+
+  // ============================================================
+  // ✅ VILLES DISPONIBLES (filtrées par région sélectionnée)
+  // ============================================================
+  const villesDisponibles = useMemo(() => {
+    let filtered = toutesLesVilles;
+
+    if (selectedRegion) {
+      filtered = filtered.filter((v) => v.region === selectedRegion);
+    }
+
+    const set = new Set(filtered.map((v) => v.ville));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, locale));
+  }, [toutesLesVilles, selectedRegion, locale]);
+
+  // ============================================================
+  // ✅ RÉGION DÉDUITE DE LA VILLE
+  // ============================================================
+  const regionDeduiteDeVille = useMemo(() => {
+    if (!selectedVille) return '';
+    const villeNorm = normalizeStr(selectedVille);
+    const trouvee = toutesLesVilles.find(
+      (v) => normalizeStr(v.ville) === villeNorm
+    );
+    return trouvee ? trouvee.region : '';
+  }, [selectedVille, toutesLesVilles, normalizeStr]);
+
+  // ✅ Région effective
+  const regionEffective = useMemo(() => {
+    return selectedRegion || regionDeduiteDeVille || '';
+  }, [selectedRegion, regionDeduiteDeVille]);
+
+  // ============================================================
+  // ✅ CHANGEMENT DE RÉGION (met aussi à jour selectedRegionId)
+  // ============================================================
+  const handleRegionChange = (e) => {
+    const newRegionNom = e.target.value;
+    setSelectedRegion(newRegionNom);
+
+    // Récupérer l'ID de la région
+    const regionTrouvee = regionsAvecVilles.find((r) => r.nom === newRegionNom);
+    setSelectedRegionId(regionTrouvee ? regionTrouvee.id : null);
+
+    // Si la ville actuelle n'appartient plus à la nouvelle région, reset
+    if (newRegionNom && selectedVille) {
+      const villeNorm = normalizeStr(selectedVille);
+      const appartient = toutesLesVilles.some(
+        (v) => normalizeStr(v.ville) === villeNorm && v.region === newRegionNom
+      );
+      if (!appartient) {
+        setSelectedVille('');
+        setSelectedVilleId(null);
+      }
+    }
+
+    // Si on efface la région → on efface aussi l'ID
+    if (!newRegionNom) {
+      setSelectedRegionId(null);
+    }
+  };
+
+  // ============================================================
+  // ✅ CHANGEMENT DE VILLE (met aussi à jour selectedVilleId)
+  // ============================================================
+  const handleVilleChange = (e) => {
+    const newVilleNom = e.target.value;
+    setSelectedVille(newVilleNom);
+
+    if (newVilleNom) {
+      const villeNorm = normalizeStr(newVilleNom);
+      const trouvee = toutesLesVilles.find(
+        (v) => normalizeStr(v.ville) === villeNorm
+      );
+      if (trouvee) {
+        setSelectedVilleId(trouvee.villeId);
+        if (trouvee.region !== selectedRegion) {
+          setSelectedRegion(trouvee.region);
+          setSelectedRegionId(trouvee.regionId);
+        } else if (!selectedRegionId) {
+          setSelectedRegionId(trouvee.regionId);
+        }
+      }
+    } else {
+      // Ville effacée → on garde la région, on efface juste l'ID
+      setSelectedVilleId(null);
+    }
+  };
 
   // ============================================================
   // HELPERS DE FORMATAGE
@@ -132,28 +257,68 @@ const DateOcc = () => {
   };
 
   // ============================================================
-  // APPELS API
+  // ✅ APPEL API : régions AVEC villes
   // ============================================================
-  const loadRegions = useCallback(async () => {
+  const loadRegionsAvecVilles = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/regions');
+      const res = await fetch('http://localhost:3001/api/regions/avec-villes');
       const data = await res.json();
-      if (data.success) setRegionsDisponibles(data.regions || []);
+
+      if (data.success && Array.isArray(data.regions)) {
+        setRegionsAvecVilles(data.regions);
+        console.log('✅ Régions chargées avec villes:', data.regions.length);
+        data.regions.forEach((r) => {
+          console.log(`   📍 ${r.nom} (id=${r.id}) → ${(r.villes || []).length} ville(s)`);
+        });
+        return;
+      }
+
+      const fallback = await fetch('http://localhost:3001/api/regions');
+      const fbData = await fallback.json();
+      if (fbData.success) {
+        setRegionsAvecVilles(
+          (fbData.regions || []).map((r) => ({ ...r, villes: [] }))
+        );
+      }
     } catch (err) {
-      console.error('Erreur chargement régions:', err);
+      console.error('❌ Erreur chargement régions avec villes:', err);
     }
   }, []);
 
+  // ============================================================
+  // ✅ APPEL API : événements (avec filtres ID si présents)
+  // ============================================================
   const fetchOccasionnels = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('http://localhost:3001/api/usagers/occasionnels');
+      // ✅ On peut passer les IDs au serveur pour un filtrage SQL direct
+      const params = new URLSearchParams();
+      if (selectedRegionId) params.append('region_id', selectedRegionId);
+      if (selectedVilleId) params.append('ville_id', selectedVilleId);
+
+      const url = `http://localhost:3001/api/usagers/occasionnels${params.toString() ? '?' + params.toString() : ''}`;
+      console.log('📡 Fetch OCC :', url);
+
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+
       if (data.success && data.events) {
         setEvents(data.events);
         setAvailableYears(extractAvailableYears(data.events));
+
+        console.log('═══════════════════════════════════');
+        console.log('🔍 DEBUG ÉVÉNEMENTS OCC');
+        console.log('═══════════════════════════════════');
+        console.log('Nombre total :', data.events.length);
+
+        data.events.forEach((e, i) => {
+          if (i < 5) {
+            console.log(`   ev#${e.id} | region_id=${e.region_id} ville_id=${e.ville_id} | region="${e.region_nom || e.region}" | ville="${e.ville_nom || ''}"`);
+          }
+        });
+        console.log('═══════════════════════════════════');
       } else {
         setEvents([]);
         setAvailableYears([]);
@@ -170,15 +335,17 @@ const DateOcc = () => {
     } finally {
       setLoading(false);
     }
-  // ✅ PAS de dépendance [appLangue] — les données ne doivent PAS être rechargées
-  //    quand la langue change. On met [t] mais fetch ne dépend pas de la langue.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedRegionId, selectedVilleId]);
 
   useEffect(() => {
-    loadRegions();
+    loadRegionsAvecVilles();
+  }, [loadRegionsAvecVilles]);
+
+  // ✅ Recharger les données quand les IDs changent
+  useEffect(() => {
     fetchOccasionnels();
-  }, [loadRegions, fetchOccasionnels]);
+  }, [fetchOccasionnels]);
 
   // ============================================================
   // FILTRAGE
@@ -195,16 +362,73 @@ const DateOcc = () => {
     return events.find((ev) => ev.id === normalized);
   };
 
+  // ✅ Match région par ID (prioritaire) OU par nom (fallback)
+  const matchRegion = useCallback((ev, regionId, regionNom) => {
+    if (regionId) {
+      return ev.region_id === regionId;
+    }
+    if (!regionNom || regionNom.trim() === '') return true;
+
+    const regionNorm = normalizeStr(regionNom);
+    const evRegion = normalizeStr(ev.region_nom || ev.region);
+
+    if (!evRegion) return true;
+
+    return (
+      evRegion === regionNorm ||
+      evRegion.includes(regionNorm) ||
+      regionNorm.includes(evRegion)
+    );
+  }, [normalizeStr]);
+
+  // ============================================================
+  // ✅ MATCH VILLE — priorité ID, sinon fallback texte strict
+  // ============================================================
+  const matchVille = useCallback((ev, villeId, villeNom) => {
+    // ✅ 1) Match par ID (le plus fiable)
+    if (villeId) {
+      return ev.ville_id === villeId;
+    }
+
+    // ⚠️ 2) Fallback texte (uniquement si pas d'ID)
+    if (!villeNom || villeNom.trim() === '') return true;
+
+    const villeNorm = normalizeStr(villeNom);
+    if (!villeNorm) return true;
+
+    // Champs STRICTEMENT liés à la localisation
+    const champs = [
+      ev.ville_nom,
+      ev.ville,
+      ev.lieu_evenement,
+      ev.domicile,
+      ev.adresse,
+      ev.lieu_ajout,
+    ]
+      .filter(Boolean)
+      .map((c) => normalizeStr(c));
+
+    return champs.some(
+      (c) => c === villeNorm || c.includes(villeNorm) || villeNorm.includes(c)
+    );
+  }, [normalizeStr]);
+
+  // ============================================================
+  // ✅ FILTRE PRINCIPAL
+  //    Priorité aux IDs. Repli région si ville ne matche pas.
+  // ============================================================
   const getFilteredEvents = useMemo(() => {
     if (!events.length) return [];
 
     let filtered = [...events];
 
+    // 1) Référence ID
     if (referenceId.trim()) {
       const found = findEventById(referenceId);
       return found ? [found] : [];
     }
 
+    // 2) Recherche texte
     if (searchTerm.trim()) {
       const lower = searchTerm.toLowerCase().trim();
       filtered = filtered.filter((ev) => {
@@ -226,12 +450,15 @@ const DateOcc = () => {
       });
     }
 
+    // 3) Jour
     if (selectedDay) {
       const day = parseInt(selectedDay, 10);
       filtered = filtered.filter(
         (ev) => ev.date_evenement && new Date(ev.date_evenement).getDate() === day
       );
     }
+
+    // 4) Mois
     if (selectedMonth) {
       const moisMap = {
         janvier: 0, février: 1, mars: 2, avril: 3, mai: 4, juin: 5,
@@ -242,21 +469,50 @@ const DateOcc = () => {
         (ev) => ev.date_evenement && new Date(ev.date_evenement).getMonth() === moisNum
       );
     }
+
+    // 5) Année
     if (selectedYear) {
       const year = parseInt(selectedYear, 10);
       filtered = filtered.filter(
         (ev) => ev.date_evenement && new Date(ev.date_evenement).getFullYear() === year
       );
     }
-    if (selectedRegion) {
-      filtered = filtered.filter((ev) => ev.region === selectedRegion);
+
+    // ============================================================
+    // ✅ 6) FILTRE VILLE (par ID prioritaire)
+    //    Si ville sélectionnée ET a des résultats → on garde
+    //    Sinon → repli sur région
+    // ============================================================
+    if (selectedVilleId || selectedVille) {
+      const filteredByVille = filtered.filter((ev) =>
+        matchVille(ev, selectedVilleId, selectedVille)
+      );
+
+      if (filteredByVille.length > 0) {
+        filtered = filteredByVille;
+      } else {
+        // ✅ Repli : garder les événements de la région effective
+        if (selectedRegionId || regionEffective) {
+          filtered = filtered.filter((ev) =>
+            matchRegion(ev, selectedRegionId, regionEffective)
+          );
+        }
+      }
+    } else if (selectedRegionId || regionEffective) {
+      // 7) FILTRE RÉGION uniquement
+      filtered = filtered.filter((ev) =>
+        matchRegion(ev, selectedRegionId, regionEffective)
+      );
     }
 
     filtered.sort((a, b) => new Date(b.date_evenement) - new Date(a.date_evenement));
     return filtered;
   }, [
     events, searchTerm, referenceId,
-    selectedDay, selectedMonth, selectedYear, selectedRegion,
+    selectedDay, selectedMonth, selectedYear,
+    regionEffective, selectedRegionId,
+    selectedVille, selectedVilleId,
+    matchRegion, matchVille,
   ]);
 
   // ============================================================
@@ -277,7 +533,8 @@ const DateOcc = () => {
   const totalRegionsCouvertes = useMemo(() => {
     const s = new Set();
     getFilteredEvents.forEach((ev) => {
-      if (ev.region) s.add(ev.region);
+      if (ev.region_id) s.add(`id-${ev.region_id}`);
+      else if (ev.region_nom || ev.region) s.add(ev.region_nom || ev.region);
     });
     return s.size;
   }, [getFilteredEvents]);
@@ -313,7 +570,6 @@ const DateOcc = () => {
     return 'upcoming';
   };
 
-  // ✅ statusConfig dans useMemo — recalculé quand la langue change
   const statusConfig = useMemo(() => ({
     passed: {
       label: t('Passé', 'Lasana', 'Passed'),
@@ -361,14 +617,47 @@ const DateOcc = () => {
     setSelectedMonth('');
     setSelectedYear('');
     setSelectedRegion('');
+    setSelectedVille('');
+    setSelectedRegionId(null);
+    setSelectedVilleId(null);
   };
+
+  // ============================================================
+  // ✅ MESSAGE D'INFO CONTEXTUEL
+  // ============================================================
+  const infoMessage = useMemo(() => {
+    if (!selectedVille) return null;
+
+    const nbResultats = getFilteredEvents.length;
+
+    // Cas 1 : ville avec région connue + résultats
+    if (regionDeduiteDeVille && nbResultats > 0) {
+      return {
+        icon: Info,
+        text: t(
+          `Ville "${selectedVille}" → Région "${regionDeduiteDeVille}". ${nbResultats} événement(s) trouvé(s).`,
+          `Tanàna "${selectedVille}" → Faritra "${regionDeduiteDeVille}". ${nbResultats} hetsika hita.`,
+          `City "${selectedVille}" → Region "${regionDeduiteDeVille}". ${nbResultats} event(s) found.`
+        ),
+      };
+    }
+
+    // Cas 2 : ville sans correspondance exacte → repli région
+    return {
+      icon: AlertCircle,
+      text: t(
+        `Ville "${selectedVille}" sélectionnée. Aucun événement ne correspond exactement — affichage des événements de la région "${regionEffective || '—'}".`,
+        `Tanàna "${selectedVille}" voafidy. Tsy misy hetsika mifanaraka tsara — aseho ny hetsika ao amin'ny faritra "${regionEffective || '—'}".`,
+        `City "${selectedVille}" selected. No event matches exactly — showing events from region "${regionEffective || '—'}".`
+      ),
+    };
+  }, [selectedVille, regionDeduiteDeVille, regionEffective, getFilteredEvents.length, t]);
 
   return (
     <>
       <MiniSidebar />
 
       <main className="occ-page">
-        {/* ============ HEADER ============ */}
         <header className="occ-header">
           <div className="occ-header-bg" />
           <div className="occ-header-content">
@@ -409,12 +698,9 @@ const DateOcc = () => {
             </div>
           </div>
 
-          {/* ===== KPI CARDS ===== */}
           <div className="occ-kpi-grid">
             <div className="occ-kpi-card occ-kpi-blue">
-              <div className="occ-kpi-icon">
-                <Layers size={22} />
-              </div>
+              <div className="occ-kpi-icon"><Layers size={22} /></div>
               <div className="occ-kpi-data">
                 <span className="occ-kpi-value">{totalEvents}</span>
                 <span className="occ-kpi-label">
@@ -424,9 +710,7 @@ const DateOcc = () => {
             </div>
 
             <div className="occ-kpi-card occ-kpi-purple">
-              <div className="occ-kpi-icon">
-                <Users size={22} />
-              </div>
+              <div className="occ-kpi-icon"><Users size={22} /></div>
               <div className="occ-kpi-data">
                 <span className="occ-kpi-value">{uniqueOrgs}</span>
                 <span className="occ-kpi-label">
@@ -436,9 +720,7 @@ const DateOcc = () => {
             </div>
 
             <div className="occ-kpi-card occ-kpi-green">
-              <div className="occ-kpi-icon">
-                <Music size={22} />
-              </div>
+              <div className="occ-kpi-icon"><Music size={22} /></div>
               <div className="occ-kpi-data">
                 <span className="occ-kpi-value">{totalArtistesUniques}</span>
                 <span className="occ-kpi-label">
@@ -448,9 +730,7 @@ const DateOcc = () => {
             </div>
 
             <div className="occ-kpi-card occ-kpi-orange">
-              <div className="occ-kpi-icon">
-                <MapPin size={22} />
-              </div>
+              <div className="occ-kpi-icon"><MapPin size={22} /></div>
               <div className="occ-kpi-data">
                 <span className="occ-kpi-value">{totalRegionsCouvertes}</span>
                 <span className="occ-kpi-label">
@@ -460,9 +740,7 @@ const DateOcc = () => {
             </div>
 
             <div className="occ-kpi-card occ-kpi-teal">
-              <div className="occ-kpi-icon">
-                <TrendingUp size={22} />
-              </div>
+              <div className="occ-kpi-icon"><TrendingUp size={22} /></div>
               <div className="occ-kpi-data">
                 <span className="occ-kpi-value">
                   {chiffreAffaireTotal.toLocaleString(locale)}
@@ -475,7 +753,6 @@ const DateOcc = () => {
           </div>
         </header>
 
-        {/* ============ FILTRES ============ */}
         <section className="occ-filters-section">
           <div className="occ-filters-header">
             <h3>
@@ -514,9 +791,7 @@ const DateOcc = () => {
               >
                 <option value="">{t('Tous', 'Rehetra', 'All')}</option>
                 {MONTHS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
+                  <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
             </div>
@@ -538,6 +813,7 @@ const DateOcc = () => {
               </select>
             </div>
 
+            {/* ✅ RÉGION */}
             <div className="occ-filter-item">
               <label htmlFor="occ-region">
                 <MapPin size={13} /> {t('Région', 'Faritra', 'Region')}
@@ -545,12 +821,31 @@ const DateOcc = () => {
               <select
                 id="occ-region"
                 value={selectedRegion}
-                onChange={(e) => setSelectedRegion(e.target.value)}
+                onChange={handleRegionChange}
                 className="occ-form-select"
               >
                 <option value="">{t('Toutes', 'Rehetra', 'All')}</option>
-                {regionsDisponibles.map((r) => (
+                {regionsAvecVilles.map((r) => (
                   <option key={r.id} value={r.nom}>{r.nom}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* ✅ VILLE */}
+            <div className="occ-filter-item">
+              <label htmlFor="occ-ville">
+                <Building2 size={13} /> {t('Ville', 'Tanàna', 'City')}
+              </label>
+              <select
+                id="occ-ville"
+                value={selectedVille}
+                onChange={handleVilleChange}
+                className="occ-form-select"
+                disabled={villesDisponibles.length === 0}
+              >
+                <option value="">{t('Toutes', 'Rehetra', 'All')}</option>
+                {villesDisponibles.map((v) => (
+                  <option key={v} value={v}>{v}</option>
                 ))}
               </select>
             </div>
@@ -563,35 +858,15 @@ const DateOcc = () => {
             </div>
           </div>
 
-          <div className="occ-search-bar">
-            <div className="occ-search-wrapper">
-              <Search size={16} className="occ-search-icon" />
-              <input
-                type="text"
-                placeholder={t(
-                  'Rechercher par nom, lieu, artiste, organisateur…',
-                  'Hikaroka amin\'ny anarana, toerana, mpihira, mpikarakara…',
-                  'Search by name, place, artist, organizer…'
-                )}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="occ-search-input"
-              />
+          {/* ✅ MESSAGE INFO contextuel */}
+          {infoMessage && (
+            <div className="occ-info-message">
+              <infoMessage.icon size={16} />
+              <span>{infoMessage.text}</span>
             </div>
-            <div className="occ-ref-wrapper">
-              <Tag size={16} className="occ-ref-icon" />
-              <input
-                type="text"
-                placeholder={t('ID événement', 'ID hetsika', 'Event ID')}
-                value={referenceId}
-                onChange={(e) => setReferenceId(e.target.value)}
-                className="occ-ref-input"
-              />
-            </div>
-          </div>
+          )}
         </section>
 
-        {/* ============ TABLEAU ============ */}
         <section className="occ-table-section">
           <div className="occ-table-header">
             <h3>
@@ -626,6 +901,12 @@ const DateOcc = () => {
                       `Aucun événement avec la référence ${referenceId}`,
                       `Tsy misy hetsika misy ny referansa ${referenceId}`,
                       `No event with reference ${referenceId}`
+                    )
+                  : selectedVille
+                  ? t(
+                      `Aucun événement trouvé pour la ville "${selectedVille}"`,
+                      `Tsy misy hetsika hita ho an'ny tanàna "${selectedVille}"`,
+                      `No event found for city "${selectedVille}"`
                     )
                   : t(
                       'Aucun événement ne correspond à vos critères',
@@ -713,7 +994,6 @@ const DateOcc = () => {
           )}
         </section>
 
-        {/* ============ FOOTER ============ */}
         <footer className="occ-footer">
           <div className="occ-footer-content">
             <div className="occ-footer-brand">
@@ -752,7 +1032,6 @@ const DateOcc = () => {
         </footer>
       </main>
 
-      {/* ============ MODAL ============ */}
       {selectedEvent && (
         <div className="occ-modal-overlay" onClick={closeModal}>
           <div className="occ-modal" onClick={(e) => e.stopPropagation()}>
@@ -776,7 +1055,6 @@ const DateOcc = () => {
             </div>
 
             <div className="occ-modal-body">
-              {/* ===== Événement ===== */}
               <div className="occ-modal-section">
                 <h4>
                   <Calendar size={15} /> {t('Événement', 'Hetsika', 'Event')}
@@ -796,7 +1074,11 @@ const DateOcc = () => {
                   </div>
                   <div className="occ-modal-row">
                     <span><MapPinned size={13} /> {t('Région', 'Faritra', 'Region')}</span>
-                    <strong>{selectedEvent.region || '—'}</strong>
+                    <strong>{selectedEvent.region_nom || selectedEvent.region || '—'}</strong>
+                  </div>
+                  <div className="occ-modal-row">
+                    <span><Building2 size={13} /> {t('Ville', 'Tanàna', 'City')}</span>
+                    <strong>{selectedEvent.ville_nom || '—'}</strong>
                   </div>
                   <div className="occ-modal-row">
                     <span><Music size={13} /> {t('Artistes (texte)', 'Mpihira (lahatsoratra)', 'Artists (text)')}</span>
@@ -805,7 +1087,6 @@ const DateOcc = () => {
                 </div>
               </div>
 
-              {/* ===== Organisateur ===== */}
               <div className="occ-modal-section">
                 <h4>
                   <Building2 size={15} /> {t('Organisateur', 'Mpikarakara', 'Organizer')}
@@ -856,7 +1137,6 @@ const DateOcc = () => {
                 </div>
               </div>
 
-              {/* ===== Dossier ===== */}
               <div className="occ-modal-section">
                 <h4>
                   <FileText size={15} /> {t('Dossier', 'Rakitra', 'File')}
@@ -889,7 +1169,6 @@ const DateOcc = () => {
                 </div>
               </div>
 
-              {/* ===== Finances ===== */}
               <div className="occ-modal-section">
                 <h4>
                   <DollarSign size={15} /> {t('Finances', 'Vola', 'Finances')}
@@ -933,7 +1212,6 @@ const DateOcc = () => {
                 </div>
               </div>
 
-              {/* ===== Artistes ===== */}
               {selectedEvent.artistesList && selectedEvent.artistesList.length > 0 && (
                 <div className="occ-modal-section">
                   <h4>

@@ -26,7 +26,6 @@ const GestionCrud = ({ onBack }) => {
   const [regions, setRegions] = useState([]);
   const [deleteError, setDeleteError] = useState(null);
 
-  // ✅ "Autre" placé APRÈS "Télé/Radio" (donc en dernier)
   const usagerTypes = useMemo(() => [
     'OCC',
     'Hôtel',
@@ -34,7 +33,7 @@ const GestionCrud = ({ onBack }) => {
     'Bus',
     'Night club',
     'Télé/Radio',
-    'Autre',          // ✅ DERNIER
+    'Autre',
   ], []);
 
   const usagerTypesLabels = useMemo(() => ({
@@ -44,7 +43,7 @@ const GestionCrud = ({ onBack }) => {
     Bus: t('Bus', 'Bus', 'Bus'),
     'Night club': t('Night club', 'Club alina', 'Night club'),
     'Télé/Radio': t('Télé/Radio', 'Fahitalavitra/Radio', 'TV/Radio'),
-    'Autre': t('Autre', 'Hafa', 'Other'),        // ✅ DERNIER
+    'Autre': t('Autre', 'Hafa', 'Other'),
   }), [t]);
 
   useEffect(() => {
@@ -212,7 +211,6 @@ const GestionCrud = ({ onBack }) => {
     e.preventDefault();
     if (!selectedUsager) return;
 
-    // ✅ Cas particulier : "Autre" → structure différente
     if (selectedUsager.type_usager === 'Autre') {
       try {
         const response = await fetch(
@@ -254,7 +252,6 @@ const GestionCrud = ({ onBack }) => {
       return;
     }
 
-    // ✅ Cas standard
     const updateData = { ...editingData, type_usager: editingData.type_usager || selectedUsager.type_usager };
     try {
       const response = await fetch(`http://localhost:3001/api/usagers/${selectedUsager.id}`, {
@@ -289,6 +286,7 @@ const GestionCrud = ({ onBack }) => {
     setShowDeleteModal(true);
   };
 
+  // ✅ SUPPRESSION avec message détaillé
   const confirmDelete = async () => {
     if (!usagerToDelete) return;
     setDeleteError(null);
@@ -330,11 +328,23 @@ const GestionCrud = ({ onBack }) => {
       }
 
       if (data.success) {
-        setSuccessMsg(`✅ ${t('Usager supprimé avec succès', 'Vita ny famafana ny mpampiasa', 'User deleted successfully')}`);
+        // ✅ Message détaillé : nombre de paiements supprimés
+        const nbPaiements = data.details?.nb_paiements_supprimes || 0;
+        const montantSupprime = data.details?.montant_total_supprime || 0;
+
+        let message = `✅ ${t('Usager supprimé avec succès', 'Vita ny famafana', 'User deleted successfully')}`;
+        if (nbPaiements > 0) {
+          message += ` • ${nbPaiements} ${t('paiement(s)', 'fandoavana', 'payment(s)')}`;
+          if (montantSupprime > 0) {
+            message += ` (${montantSupprime.toLocaleString('fr-FR')} Ar)`;
+          }
+        }
+
+        setSuccessMsg(message);
         setShowDeleteModal(false);
         setUsagerToDelete(null);
         await fetchUsagers(token);
-        setTimeout(() => setSuccessMsg(null), 3000);
+        setTimeout(() => setSuccessMsg(null), 4000);
       } else {
         setDeleteError(data.message || t('Erreur inconnue', 'Olana tsy fantatra', 'Unknown error'));
       }
@@ -689,7 +699,16 @@ const GestionCrud = ({ onBack }) => {
                 <p><strong>{t('Demandeur', 'Mpangataka', 'Applicant')} :</strong> {usagerToDelete.demandeur}</p>
               </div>
               <div className="delete-confirmation-info">
-                <p className="delete-warning">⚠️ {t('Cette action est irréversible !', 'Tsy azo ivalozana ity hetsika ity !', 'This action is irreversible!')}</p>
+                <p className="delete-warning">
+                  ⚠️ {t('Cette action est irréversible !', 'Tsy azo ivalozana ity hetsika ity !', 'This action is irreversible!')}
+                </p>
+                <p style={{ marginTop: 8, fontSize: '13px', color: '#b45309', fontWeight: 600 }}>
+                  ⚠️ {t(
+                    'Tous les paiements liés à cet usager seront aussi supprimés.',
+                    'Ho voafafa koa ny fandoavana rehetra mifandraika amin\'ity mpampiasa ity.',
+                    'All payments linked to this user will also be deleted.'
+                  )}
+                </p>
               </div>
               {deleteError && (
                 <p className="delete-warning" style={{ color: '#c0392b', fontWeight: 'bold' }}>

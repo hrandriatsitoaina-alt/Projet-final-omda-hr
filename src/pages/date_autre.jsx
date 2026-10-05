@@ -95,7 +95,7 @@ const Dateautre = () => {
     {
       id: 'bus',
       icon: Bus,
-      title: t('Bus', 'Bus', 'Bus'),
+      title: t('Transport', 'Fitanterana', 'Transport'),
       count: counts.bus,
       desc: t("Ajout d'une ligne", 'Fanampiana lalana', 'Add a line'),
       path: '/date-bus',

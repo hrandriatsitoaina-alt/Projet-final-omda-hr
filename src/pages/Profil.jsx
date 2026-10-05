@@ -8,7 +8,7 @@ import {
   FileText, TrendingUp, Bell, Globe,
   BookOpen, Zap, Star, Activity,
   ChevronRight, Info, Settings, Users,
-  Eye, EyeOff
+  Eye, EyeOff, AlertCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -45,10 +45,26 @@ const Profil = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  // ✅ NOUVEAU : État pour l'erreur "mots de passe non identiques"
+  const [passwordMismatch, setPasswordMismatch] = useState(false);
+
   useEffect(() => {
     fetchProfile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ✅ NOUVEAU : Vérification en temps réel de la correspondance des mots de passe
+  useEffect(() => {
+    if (
+      formData.mot_de_passe &&
+      formData.confirm_mot_de_passe &&
+      formData.mot_de_passe !== formData.confirm_mot_de_passe
+    ) {
+      setPasswordMismatch(true);
+    } else {
+      setPasswordMismatch(false);
+    }
+  }, [formData.mot_de_passe, formData.confirm_mot_de_passe]);
 
   const fetchProfile = async () => {
     try {
@@ -212,6 +228,7 @@ const Profil = () => {
         // ✅ Réinitialiser les yeux
         setShowPassword(false);
         setShowConfirmPassword(false);
+        setPasswordMismatch(false);
         setTimeout(() => setMessage({ text: '', type: '' }), 3000);
       }
     } catch (error) {
@@ -240,6 +257,8 @@ const Profil = () => {
     // ✅ Réinitialiser les yeux
     setShowPassword(false);
     setShowConfirmPassword(false);
+    // ✅ Réinitialiser l'erreur de correspondance
+    setPasswordMismatch(false);
     setMessage({ text: '', type: '' });
   };
 
@@ -571,6 +590,20 @@ const Profil = () => {
                       {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
+
+                  {/* ✅ NOUVEAU : Message d'erreur en temps réel si les mots de passe ne correspondent pas */}
+                  {passwordMismatch && (
+                    <div className="password-mismatch-error">
+                      <AlertCircle size={15} />
+                      <span>
+                        {t(
+                          'Les mots de passe ne sont pas identiques',
+                          'Tsy mitovy ny teny miafina',
+                          "Passwords don't match"
+                        )}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="full-width">

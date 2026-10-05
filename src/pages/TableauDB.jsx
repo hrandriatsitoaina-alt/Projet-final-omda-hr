@@ -13,25 +13,47 @@ import {
   ResponsiveContainer, PieChart as RePieChart, Pie, Cell, Legend,
 } from 'recharts';
 import '../styles/TableauDB.css';
-// ✅ Hook de traduction unique — source de vérité
 import { useT } from '../hooks/useT';
 
 const API_URL = 'http://localhost:3001/api';
+
+// ============================================================
+// ✅ RÈGLE UNIQUE DE CALCUL (identique à PayementChoix / BilanCards)
+//    1. Un paiement compte s'il est "paye"
+//    2. ET si :
+//       - son annee === currentYear  OU
+//       - son type_paiement === 'unique'  (OCC → toujours inclus, annee peut être NULL)
+//    3. On somme UNIQUEMENT p.montant (déjà total réel en BD)
+// ============================================================
+const matchPaiementCourant = (paiement, currentYear) => {
+  if (!paiement) return false;
+  if (paiement.statut !== 'paye') return false;
+  if (paiement.type_paiement === 'unique') return true;       // OCC
+  return Number(paiement.annee) === currentYear;
+};
 
 // ============================================================
 // 🎯 COMPOSANT
 // ============================================================
 const TableauDB = () => {
   const navigate = useNavigate();
-
-  // ✅ LANGUE UNIQUE — vient du Context, pas d'un état local
   const { t, langue } = useT();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [diagnostic, setDiagnostic] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [activeTab, setActiveTab] = useState('overview');
+
+  // ============================================================
+  // ✅ DONNÉES BRUTES (source unique de vérité)
+  // ============================================================
+  const [paiementsRaw, setPaiementsRaw] = useState([]);
+  const [usagersRaw, setUsagersRaw] = useState([]);
+  const [regionsRaw, setRegionsRaw] = useState([]);
+  const [artistesCount, setArtistesCount] = useState(0);
+
+  // Année en cours
+  const currentYear = useMemo(() => new Date().getFullYear(), []);
 
   // Couleurs graphiques
   const COLORS = useMemo(
@@ -47,25 +69,19 @@ const TableauDB = () => {
   // ============================================================
   const locale = useMemo(() => {
     if (langue === 'en') return 'en-US';
-    if (langue === 'mg') return 'fr-MG'; // Malagasy utilise format FR
+    if (langue === 'mg') return 'fr-MG';
     return 'fr-FR';
   }, [langue]);
 
-  const formatMontant = useCallback(
-    (val) => {
-      if (val === null || val === undefined) return '0 Ar';
-      return Math.round(val).toLocaleString(locale) + ' Ar';
-    },
-    [locale]
-  );
+  const formatMontant = useCallback((val) => {
+    if (val === null || val === undefined) return '0 Ar';
+    return Math.round(val).toLocaleString(locale) + ' Ar';
+  }, [locale]);
 
-  const formatNumber = useCallback(
-    (n) => {
-      if (n === null || n === undefined) return '0';
-      return Math.round(n).toLocaleString(locale);
-    },
-    [locale]
-  );
+  const formatNumber = useCallback((n) => {
+    if (n === null || n === undefined) return '0';
+    return Math.round(n).toLocaleString(locale);
+  }, [locale]);
 
   // ============================================================
   // 📅 MOIS SELON LA LANGUE
@@ -90,23 +106,47 @@ const TableauDB = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get(`${API_URL}/ia/diagnostic`);
-      if (response.data.success) {
-        setDiagnostic(response.data.diagnostic);
-        setLastUpdate(new Date());
-      } else {
-        setError(t(
-          'Erreur lors du chargement des données',
-          "Nisy olana tamin'ny fakana ny angona",
-          'Error while loading data'
-        ));
+      const token = localStorage.getItem('adminToken') || '';
+      const headers = { adminToken: token };
+
+      const [paiementsRes, usagersRes, regionsRes] = await Promise.all([
+        axios.get(`${API_URL}/paiements/tous`, { headers })
+          .catch(() => ({ data: { success: false, paiements: [] } })),
+        axios.get(`${API_URL}/usagers`, { headers })
+          .catch(() => ({ data: [] })),
+        axios.get(`${API_URL}/regions`, { headers })
+          .catch(() => ({ data: { success: false, regions: [] } })),
+      ]);
+
+      // Paiements
+      if (paiementsRes.data?.success) {
+        setPaiementsRaw(paiementsRes.data.paiements || []);
       }
+
+      // Usagers
+      let usagers = [];
+      const ud = usagersRes.data;
+      if (Array.isArray(ud)) usagers = ud;
+      else if (ud?.usagers && Array.isArray(ud.usagers)) usagers = ud.usagers;
+      else if (ud?.data && Array.isArray(ud.data)) usagers = ud.data;
+      setUsagersRaw(usagers);
+
+      // Régions
+      if (regionsRes.data?.success) {
+        setRegionsRaw(regionsRes.data.regions || []);
+      }
+
+      // Artistes (OCC) — best effort
+      try {
+        const artistesRes = await axios.get(`${API_URL}/artistes`, { headers });
+        if (Array.isArray(artistesRes.data)) setArtistesCount(artistesRes.data.length);
+        else if (artistesRes.data?.artistes) setArtistesCount(artistesRes.data.artistes.length);
+      } catch (e) { /* ignore */ }
+
+      setLastUpdate(new Date());
     } catch (err) {
       console.error('Erreur:', err);
-      setError(
-        err.message ||
-          t('Erreur de chargement', 'Olana amin\'ny fakana', 'Loading error')
-      );
+      setError(err.message || t('Erreur de chargement', 'Olana amin\'ny fakana', 'Loading error'));
     } finally {
       setLoading(false);
     }
@@ -117,47 +157,192 @@ const TableauDB = () => {
   }, [loadData]);
 
   // ============================================================
-  // 📊 DONNÉES GRAPHIQUES
+  // 📊 DONNÉES CALCULÉES — RÈGLE 390 000 Ar
   // ============================================================
+
+  // 1) Paiements retenus : paye + (annee === currentYear OU unique)
+  const paiementsCourants = useMemo(() => {
+    return paiementsRaw.filter(p => matchPaiementCourant(p, currentYear));
+  }, [paiementsRaw, currentYear]);
+
+  // 2) Montant total (SOMME SIMPLE du champ `montant`)
+  const montantGlobal = useMemo(() => {
+    return paiementsCourants.reduce(
+      (sum, p) => sum + (parseFloat(p.montant) || 0),
+      0
+    );
+  }, [paiementsCourants]);
+
+  // 3) Usagers payés (distincts)
+  const usagersPayesSet = useMemo(() => {
+    const set = new Set();
+    for (const p of paiementsCourants) {
+      set.add(`${p.usager_type}_${p.usager_id}`);
+    }
+    return set;
+  }, [paiementsCourants]);
+
+  const totalUsagersPayes = usagersPayesSet.size;
+  const totalUsagers = usagersRaw.length;
+  const tauxGlobal = totalUsagers > 0
+    ? Math.round((totalUsagersPayes / totalUsagers) * 100)
+    : 0;
+
+  // 4) Nombre de quittances (lignes payées)
+  const totalQuittances = paiementsCourants.length;
+
+  // 5) Évolution mensuelle — recettes par mois
   const monthlyData = useMemo(() => {
-    if (!diagnostic?.historique) return [];
-    return moisLabels.map((m) => ({
+    const moisData = {};
+    for (let i = 1; i <= 12; i++) moisData[i] = 0;
+
+    for (const p of paiementsCourants) {
+      // OCC : on le met dans le mois de sa date_paiement (sinon 1)
+      const mois = p.mois || (p.date_paiement ? new Date(p.date_paiement).getMonth() + 1 : 1);
+      if (moisData[mois] !== undefined) {
+        moisData[mois] += parseFloat(p.montant) || 0;
+      }
+    }
+
+    return moisLabels.map((m, i) => ({
       mois: m,
-      montant: Math.random() * 5000000 + 1000000,
+      montant: moisData[i + 1] || 0,
     }));
-  }, [diagnostic, moisLabels]);
+  }, [paiementsCourants, moisLabels]);
 
+  // 6) Répartition par type (montants)
+  const typeMontants = useMemo(() => {
+    const map = {
+      hotel: 0,
+      'grand-surface': 0,
+      bus: 0,
+      nightclub: 0,
+      media: 0,
+      occ: 0,
+      other: 0,
+    };
+
+    for (const p of paiementsCourants) {
+      let type = (p.usager_type || '').toLowerCase();
+      if (type === 'autre') type = 'other';
+      if (type === 'grand_surface') type = 'grand-surface';
+      if (type === 'night_club' || type === 'night-club') type = 'nightclub';
+      if (map[type] === undefined) map[type] = 0;
+      map[type] += parseFloat(p.montant) || 0;
+    }
+
+    return map;
+  }, [paiementsCourants]);
+
+  // 7) Données pour le camembert (répartition usagers par type)
   const typeData = useMemo(() => {
-    if (!diagnostic?.categories) {
-      return [
-        { name: t('Hôtel', 'Hotely', 'Hotel'), value: 45, taux: 78 },
-        { name: t('Grande Surface', 'Fivarotana lehibe', 'Large Store'), value: 32, taux: 65 },
-        { name: t('OCC', 'OCC', 'OCC'), value: 28, taux: 92 },
-        { name: t('Bus', 'Bus', 'Bus'), value: 19, taux: 55 },
-        { name: t('Télé/Radio', 'Fahitalavitra/Radio', 'TV/Radio'), value: 15, taux: 70 },
-        { name: t('Night Club', 'Club alina', 'Night Club'), value: 8, taux: 40 },
-      ];
-    }
-    return Object.entries(diagnostic.categories).map(([key, value]) => ({
-      name: value.label || key,
-      value: value.total || 0,
-      taux: value.tauxPaiement || 0,
-    }));
-  }, [diagnostic, t]);
+    const labels = {
+      hotel: t('Hôtel', 'Hotely', 'Hotel'),
+      'grand-surface': t('Grande Surface', 'Fivarotana lehibe', 'Large Store'),
+      occ: t('OCC', 'OCC', 'OCC'),
+      bus: t('Bus', 'Bus', 'Bus'),
+      media: t('Télé/Radio', 'Fahitalavitra/Radio', 'TV/Radio'),
+      nightclub: t('Night Club', 'Club alina', 'Night Club'),
+      other: t('Autre', 'Hafa', 'Other'),
+    };
 
-  const regionData = useMemo(() => {
-    if (diagnostic?.parRegion && diagnostic.parRegion.length > 0) {
-      return diagnostic.parRegion.slice(0, 6).map((r) => ({
-        name: r.region,
-        montant: r.montant || 0,
-        nbQuittances: r.nbQuittances || 0,
-      }));
+    const counts = {
+      hotel: 0, 'grand-surface': 0, occ: 0,
+      bus: 0, media: 0, nightclub: 0, other: 0,
+    };
+
+    for (const p of paiementsCourants) {
+      let type = (p.usager_type || '').toLowerCase();
+      if (type === 'autre') type = 'other';
+      if (type === 'grand_surface') type = 'grand-surface';
+      if (type === 'night_club' || type === 'night-club') type = 'nightclub';
+      if (counts[type] !== undefined) counts[type]++;
     }
-    return [];
-  }, [diagnostic]);
+
+    return Object.entries(counts)
+      .filter(([_, v]) => v > 0)
+      .map(([key, value]) => ({
+        name: labels[key] || key,
+        value,
+        key,
+      }));
+  }, [paiementsCourants, t]);
+
+  // 8) Régions
+  const regionData = useMemo(() => {
+    const map = new Map();
+
+    for (const p of paiementsCourants) {
+      const region = p.region || t('Non spécifiée', 'Tsy voafaritra', 'Not specified');
+      if (!map.has(region)) map.set(region, { montant: 0, nbQuittances: 0 });
+      const r = map.get(region);
+      r.montant += parseFloat(p.montant) || 0;
+      r.nbQuittances++;
+    }
+
+    return Array.from(map.entries())
+      .map(([region, data]) => ({
+        name: region,
+        montant: data.montant,
+        nbQuittances: data.nbQuittances,
+      }))
+      .sort((a, b) => b.montant - a.montant)
+      .slice(0, 8);
+  }, [paiementsCourants, t]);
+
+  // 9) Tendance simple (comparaison mois courant vs précédent)
+  const tendance = useMemo(() => {
+    const now = new Date();
+    const moisActuel = now.getMonth() + 1;
+    const moisPrec = moisActuel === 1 ? 12 : moisActuel - 1;
+
+    const getMois = (m) => paiementsCourants
+      .filter(p => {
+        const mois = p.mois || (p.date_paiement ? new Date(p.date_paiement).getMonth() + 1 : 1);
+        return mois === m;
+      })
+      .reduce((s, p) => s + (parseFloat(p.montant) || 0), 0);
+
+    const mActuel = getMois(moisActuel);
+    const mPrec = getMois(moisPrec);
+
+    if (mPrec === 0 && mActuel === 0) return { direction: 'stable', pourcentage: 0 };
+    if (mPrec === 0) return { direction: 'croissance', pourcentage: 100 };
+
+    const variation = ((mActuel - mPrec) / mPrec) * 100;
+    return {
+      direction: variation > 1 ? 'croissance' : variation < -1 ? 'décroissance' : 'stable',
+      pourcentage: Math.round(Math.abs(variation)),
+    };
+  }, [paiementsCourants]);
+
+  // 10) Alertes
+  const alertes = useMemo(() => {
+    const list = [];
+    if (tauxGlobal < 50) {
+      list.push({
+        type: 'critique',
+        titre: t('Taux de paiement faible', 'Taha ambany', 'Low payment rate'),
+        message: `${tauxGlobal}% — ${t('objectif', 'tanjona', 'target')} : 70%`,
+        priorite: 1,
+        plan: [
+          { etape: t('Relancer les usagers en retard', 'Manentana ny mpampiasa', 'Remind late users'), delai: '7j' },
+        ],
+      });
+    }
+    if (totalUsagers - totalUsagersPayes > 0) {
+      list.push({
+        type: 'warning',
+        titre: t('Usagers sans paiement', 'Mpampiasa tsy nandoa', 'Users without payment'),
+        message: `${totalUsagers - totalUsagersPayes} ${t('usagers en attente', 'mpampiasa miandry', 'pending users')}`,
+        priorite: 2,
+      });
+    }
+    return list;
+  }, [tauxGlobal, totalUsagers, totalUsagersPayes, t]);
 
   // ============================================================
-  // ⏳ ÉTATS DE CHARGEMENT / ERREUR
+  // ⏳ ÉTATS
   // ============================================================
   if (loading) {
     return (
@@ -181,16 +366,14 @@ const TableauDB = () => {
     );
   }
 
-  const d = diagnostic?.global || {};
-  const alertes = diagnostic?.alertes || [];
-  const succes = diagnostic?.succes || [];
-  const suggestions = diagnostic?.suggestions || [];
-  const tendance = diagnostic?.tendance || { direction: 'stable', pourcentage: 0 };
-
   const showOverview = activeTab === 'overview';
   const showRegions = activeTab === 'regions';
   const showCategories = activeTab === 'categories';
   const showAlertes = activeTab === 'alertes';
+
+  // Objectif
+  const objectifTaux = 70;
+  const totalRetard = Math.max(0, totalUsagers - totalUsagersPayes);
 
   // ============================================================
   // 🎨 RENDER
@@ -204,7 +387,12 @@ const TableauDB = () => {
             <BarChart3 size={28} />
             <span>{t('OMDA Analytics', 'OMDA Analytics', 'OMDA Analytics')}</span>
           </div>
-          <h1>{t('Tableau de Bord', 'Tabilao', 'Dashboard')}</h1>
+          <h1>
+            {t('Tableau de Bord', 'Tabilao', 'Dashboard')}
+            <span style={{ fontSize: 14, color: '#6c7a8d', marginLeft: 12, fontWeight: 400 }}>
+              — {currentYear}
+            </span>
+          </h1>
         </div>
 
         <div className="tdb-header-right">
@@ -220,15 +408,15 @@ const TableauDB = () => {
             <RefreshCw size={18} />
           </button>
           <button
-            className="tdb-btn-icon"
-            title={t('Notifications', 'Fampandrenesana', 'Notifications')}
-          >
-            <Bell size={18} />
-            {alertes.length > 0 && (
-              <span className="tdb-notif-badge">{alertes.length}</span>
-            )}
-          </button>
-          <button className="tdb-btn-icon" onClick={() => navigate('/usagers')}>
+          type="button"
+          className="tdb-btn-icon"
+          title={t('Notifications', 'Fampandrenesana', 'Notifications')}
+          onClick={() => navigate('/notification_admin')}
+          aria-label={t('Voir les notifications', 'Jereo ny fampandrenesana', 'View notifications')}
+        >
+          <Bell size={18} />
+        </button>
+          <button className="tdb-btn-icon" onClick={() => navigate('/profil')}>
             <Users size={18} />
           </button>
           <button
@@ -275,7 +463,6 @@ const TableauDB = () => {
       <main className="tdb-content">
         {/* === KPI CARDS === */}
         <section className="tdb-kpi-grid">
-          {/* Usagers */}
           <div className="tdb-kpi-card">
             <div className="tdb-kpi-icon blue">
               <Users size={20} />
@@ -284,15 +471,14 @@ const TableauDB = () => {
               <span className="tdb-kpi-label">
                 {t('Usagers', 'Mpampiasa', 'Users')}
               </span>
-              <span className="tdb-kpi-value">{formatNumber(d.totalUsagers)}</span>
+              <span className="tdb-kpi-value">{formatNumber(totalUsagers)}</span>
               <span className="tdb-kpi-hint">
-                {formatNumber(d.totalUsagersPayes)}{' '}
+                {formatNumber(totalUsagersPayes)}{' '}
                 {t('à jour', 'voaloa', 'up to date')}
               </span>
             </div>
           </div>
 
-          {/* Collecte */}
           <div className="tdb-kpi-card">
             <div className="tdb-kpi-icon green">
               <DollarSign size={20} />
@@ -302,15 +488,14 @@ const TableauDB = () => {
                 {t('Collecte', 'Vola voaangona', 'Collection')}
               </span>
               <span className="tdb-kpi-value">
-                {formatMontant(d.montantGlobalPaye)}
+                {formatMontant(montantGlobal)}
               </span>
               <span className="tdb-kpi-hint">
-                {t('Taux', 'Taham', 'Rate')} : {d.tauxGlobal || 0}%
+                {t('Taux', 'Taham', 'Rate')} : {tauxGlobal}%
               </span>
             </div>
           </div>
 
-          {/* En retard */}
           <div className="tdb-kpi-card">
             <div className="tdb-kpi-icon orange">
               <AlertTriangle size={20} />
@@ -319,16 +504,13 @@ const TableauDB = () => {
               <span className="tdb-kpi-label">
                 {t('En retard', 'Tara', 'Late')}
               </span>
-              <span className="tdb-kpi-value">
-                {formatNumber((d.totalUsagers || 0) - (d.totalUsagersPayes || 0))}
-              </span>
+              <span className="tdb-kpi-value">{formatNumber(totalRetard)}</span>
               <span className="tdb-kpi-hint">
                 {t('usagers', 'mpampiasa', 'users')}
               </span>
             </div>
           </div>
 
-          {/* Objectif */}
           <div className="tdb-kpi-card">
             <div className="tdb-kpi-icon purple">
               <Target size={20} />
@@ -337,15 +519,12 @@ const TableauDB = () => {
               <span className="tdb-kpi-label">
                 {t('Objectif', 'Tanjona', 'Target')}
               </span>
-              <span className="tdb-kpi-value">{d.objectifTaux || 70}%</span>
+              <span className="tdb-kpi-value">{objectifTaux}%</span>
               <div className="tdb-progress">
                 <div
                   className="tdb-progress-fill"
                   style={{
-                    width: `${Math.min(
-                      ((d.tauxGlobal || 0) / (d.objectifTaux || 70)) * 100,
-                      100
-                    )}%`,
+                    width: `${Math.min((tauxGlobal / objectifTaux) * 100, 100)}%`,
                   }}
                 />
               </div>
@@ -357,41 +536,39 @@ const TableauDB = () => {
         <section className="tdb-stats-text">
           <div className="tdb-stat-item">
             <span className="tdb-stat-label">
-              {t('Factures émises', 'Faktiora navoaka', 'Invoices issued')}
+              {t('Paiements', 'Fandoavana', 'Payments')}
             </span>
-            <span className="tdb-stat-value">{formatNumber(d.totalFactures)}</span>
+            <span className="tdb-stat-value">{formatNumber(totalQuittances)}</span>
           </div>
           <div className="tdb-stat-item">
             <span className="tdb-stat-label">
               {t('Quittances', 'Taratasy', 'Receipts')}
             </span>
-            <span className="tdb-stat-value">{formatNumber(d.totalQuittances)}</span>
+            <span className="tdb-stat-value">{formatNumber(totalQuittances)}</span>
           </div>
           <div className="tdb-stat-item">
             <span className="tdb-stat-label">
               {t('En attente validation', 'Miandry fanamarinana', 'Pending validation')}
             </span>
-            <span className="tdb-stat-value warning">
-              {formatNumber(d.quittancesNonValidees)}
-            </span>
+            <span className="tdb-stat-value warning">0</span>
           </div>
           <div className="tdb-stat-item">
             <span className="tdb-stat-label">
               {t('Régions', 'Faritra', 'Regions')}
             </span>
-            <span className="tdb-stat-value">{formatNumber(d.totalRegions)}</span>
+            <span className="tdb-stat-value">{formatNumber(regionsRaw.length)}</span>
           </div>
           <div className="tdb-stat-item">
             <span className="tdb-stat-label">
               {t('Artistes', 'Mpihira', 'Artists')}
             </span>
-            <span className="tdb-stat-value">{formatNumber(d.totalArtistes)}</span>
+            <span className="tdb-stat-value">{formatNumber(artistesCount)}</span>
           </div>
           <div className="tdb-stat-item">
             <span className="tdb-stat-label">
               {t('Utilisateurs actifs', 'Mpampiasa mavitrika', 'Active users')}
             </span>
-            <span className="tdb-stat-value">{formatNumber(d.utilisateursActifs)}</span>
+            <span className="tdb-stat-value">{formatNumber(totalUsagers)}</span>
           </div>
         </section>
 
@@ -477,7 +654,7 @@ const TableauDB = () => {
               </ResponsiveContainer>
             </div>
 
-            {/* Répartition usagers */}
+            {/* Répartition usagers par type */}
             <div className="tdb-chart-card">
               <div className="tdb-chart-header">
                 <h3>
@@ -601,40 +778,55 @@ const TableauDB = () => {
               {t('Analyse par catégorie', 'Fanadihadiana isaky ny sokajy', 'Analysis by category')}
             </h2>
             <div className="tdb-categories-grid">
-              {typeData.map((c, i) => (
-                <div key={i} className="tdb-category-card">
-                  <div className="tdb-category-header">
-                    <span
-                      className="tdb-category-dot"
-                      style={{ background: COLORS[i % COLORS.length] }}
-                    />
-                    <span className="tdb-category-name">{c.name}</span>
-                  </div>
-                  <div className="tdb-category-stats">
-                    <div>
-                      <span className="tdb-category-label">
-                        {t('Usagers', 'Mpampiasa', 'Users')}
-                      </span>
-                      <span className="tdb-category-value">{c.value}</span>
+              {Object.entries(typeMontants).filter(([_, v]) => v > 0).map(([key, montant], i) => {
+                const labels = {
+                  hotel: t('Hôtel', 'Hotely', 'Hotel'),
+                  'grand-surface': t('Grande Surface', 'Fivarotana lehibe', 'Large Store'),
+                  occ: t('OCC', 'OCC', 'OCC'),
+                  bus: t('Bus', 'Bus', 'Bus'),
+                  media: t('Télé/Radio', 'Fahitalavitra/Radio', 'TV/Radio'),
+                  nightclub: t('Night Club', 'Club alina', 'Night Club'),
+                  other: t('Autre', 'Hafa', 'Other'),
+                };
+                const pct = montantGlobal > 0
+                  ? Math.round((montant / montantGlobal) * 100)
+                  : 0;
+
+                return (
+                  <div key={key} className="tdb-category-card">
+                    <div className="tdb-category-header">
+                      <span
+                        className="tdb-category-dot"
+                        style={{ background: COLORS[i % COLORS.length] }}
+                      />
+                      <span className="tdb-category-name">{labels[key] || key}</span>
                     </div>
-                    <div>
-                      <span className="tdb-category-label">
-                        {t('Taux', 'Taham', 'Rate')}
-                      </span>
-                      <span className="tdb-category-value">{c.taux || 0}%</span>
+                    <div className="tdb-category-stats">
+                      <div>
+                        <span className="tdb-category-label">
+                          {t('Montant', 'Vola', 'Amount')}
+                        </span>
+                        <span className="tdb-category-value">{formatMontant(montant)}</span>
+                      </div>
+                      <div>
+                        <span className="tdb-category-label">
+                          {t('Part', 'Anjara', 'Share')}
+                        </span>
+                        <span className="tdb-category-value">{pct}%</span>
+                      </div>
+                    </div>
+                    <div className="tdb-category-progress">
+                      <div
+                        className="tdb-category-progress-fill"
+                        style={{
+                          width: `${Math.min(pct, 100)}%`,
+                          background: COLORS[i % COLORS.length],
+                        }}
+                      />
                     </div>
                   </div>
-                  <div className="tdb-category-progress">
-                    <div
-                      className="tdb-category-progress-fill"
-                      style={{
-                        width: `${Math.min(c.taux || 0, 100)}%`,
-                        background: COLORS[i % COLORS.length],
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}
@@ -652,11 +844,7 @@ const TableauDB = () => {
                   <div key={i} className={`tdb-alerte-full ${a.type}`}>
                     <div className="tdb-alerte-full-header">
                       <span className="tdb-alerte-full-badge">
-                        {a.type === 'critique'
-                          ? '🔴'
-                          : a.type === 'warning'
-                          ? '🟡'
-                          : '🔵'}
+                        {a.type === 'critique' ? '🔴' : a.type === 'warning' ? '🟡' : '🔵'}
                       </span>
                       <span className="tdb-alerte-full-titre">{a.titre}</span>
                       <span className="tdb-alerte-full-prio">
@@ -699,50 +887,7 @@ const TableauDB = () => {
           </section>
         )}
 
-        {/* === SUCCÈS === */}
-        {succes.length > 0 && showOverview && (
-          <section className="tdb-succes">
-            <h3>
-              <Award size={18} />{' '}
-              {t('Points positifs', 'Zavatra tsara', 'Positive points')}
-            </h3>
-            <div className="tdb-succes-grid">
-              {succes.map((s, i) => (
-                <div key={i} className="tdb-succes-item">
-                  <CheckCircle size={16} className="ok" />
-                  <span>
-                    <strong>{s.titre}</strong> — {s.message}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* === SUGGESTIONS === */}
-        {suggestions.length > 0 && showOverview && (
-          <section className="tdb-suggestions">
-            <h3>
-              <Target size={18} /> {t('Suggestions', 'Soso-kevitra', 'Suggestions')}
-            </h3>
-            <ul className="tdb-suggestions-list">
-              {suggestions.slice(0, 4).map((s, i) => (
-                <li key={i}>
-                  <span className={`tdb-suggestion-prio ${s.priorite}`}>
-                    {s.priorite === 'haute'
-                      ? '🔴'
-                      : s.priorite === 'moyenne'
-                      ? '🟡'
-                      : '🟢'}
-                  </span>
-                  {s.texte}
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {/* ========== FOOTER ========== */}
+        {/* === FOOTER === */}
         <footer className="tdb-footer">
           <span>
             © {new Date().getFullYear()} OMDA —{' '}
@@ -750,7 +895,8 @@ const TableauDB = () => {
               'Tableau de bord analytique',
               'Tabilao fanadihadiana',
               'Analytics dashboard'
-            )}
+            )}{' '}
+            · {currentYear}
           </span>
           <span>
             {t('Données mises à jour', 'Nohavaozina', 'Data updated')} :{' '}

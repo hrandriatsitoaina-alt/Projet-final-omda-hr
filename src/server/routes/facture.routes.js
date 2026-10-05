@@ -11,15 +11,11 @@ const getDAFName = async () => {
     const result = await pool.query(
       `SELECT nom FROM utilisateurs WHERE role = 'daf' AND statut = 'actif' LIMIT 1`
     );
-    if (result.rows.length > 0) {
-      return result.rows[0].nom;
-    }
+    if (result.rows.length > 0) return result.rows[0].nom;
     const fallbackResult = await pool.query(
       `SELECT nom FROM utilisateurs WHERE role = 'super_admin' AND statut = 'actif' LIMIT 1`
     );
-    if (fallbackResult.rows.length > 0) {
-      return fallbackResult.rows[0].nom;
-    }
+    if (fallbackResult.rows.length > 0) return fallbackResult.rows[0].nom;
     return 'Directeur Financier';
   } catch (error) {
     console.error('❌ Erreur récupération DAF:', error);
@@ -28,66 +24,25 @@ const getDAFName = async () => {
 };
 
 // ============================================================
-// 0.1 RÉCUPÉRER LE DERNIER NUMÉRO DE QUITTANCE (PERSISTANT)
+// 0.1 RÉCUPÉRER LE DERNIER NUMÉRO DE QUITTANCE
 // ============================================================
 const getLastQuittanceNumber = async (client = pool) => {
   try {
-    const tableCheck = await client.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'facture_usager'
-      )
+    const result = await client.query(`
+      SELECT num_quitance 
+      FROM quitance_usager 
+      ORDER BY id DESC 
+      LIMIT 1
     `);
-    
-    if (!tableCheck.rows[0].exists) {
-      console.log('⚠️ Table facture_usager n\'existe pas encore');
+
+    if (result.rows.length === 0) {
+      console.log('📊 quitance_usager vide → 0');
       return 0;
     }
 
-    const columnTypeCheck = await client.query(`
-      SELECT data_type 
-      FROM information_schema.columns 
-      WHERE table_name = 'facture_usager' AND column_name = 'quittance'
-    `);
-    
-    let query = '';
-    if (columnTypeCheck.rows.length > 0) {
-      const dataType = columnTypeCheck.rows[0].data_type;
-      console.log(`📊 Type de la colonne quittance: ${dataType}`);
-      
-      if (dataType === 'integer' || dataType === 'bigint' || dataType === 'numeric') {
-        query = `
-          SELECT MAX(quittance) as max_quittance 
-          FROM facture_usager 
-          WHERE quittance IS NOT NULL AND quittance > 0
-        `;
-      } else {
-        query = `
-          SELECT MAX(CAST(quittance AS INTEGER)) as max_quittance 
-          FROM facture_usager 
-          WHERE quittance IS NOT NULL 
-            AND quittance != '' 
-            AND quittance != '0'
-            AND quittance ~ '^[0-9]+$'
-        `;
-      }
-    } else {
-      console.log('⚠️ Colonne quittance n\'existe pas');
-      return 0;
-    }
-
-    const result = await client.query(query);
-    
-    let maxQuittance = 0;
-    if (result.rows.length > 0 && result.rows[0].max_quittance !== null) {
-      maxQuittance = parseInt(result.rows[0].max_quittance, 10);
-      console.log(`📊 Dernier numéro de quittance trouvé: ${maxQuittance}`);
-    } else {
-      console.log('⚠️ Aucun numéro de quittance existant trouvé, départ à 0');
-    }
-    
-    return maxQuittance;
-    
+    const dernier = parseInt(result.rows[0].num_quitance, 10) || 0;
+    console.log(`📊 Dernier numéro quittance: ${dernier}`);
+    return dernier;
   } catch (error) {
     console.error('❌ Erreur récupération dernier quittance:', error);
     return 0;
@@ -95,7 +50,56 @@ const getLastQuittanceNumber = async (client = pool) => {
 };
 
 // ============================================================
-// 0.2 FORMATER LE NUMÉRO DE QUITTANCE SUR 7 CHIFFRES
+// 0.1b RÉCUPÉRER LE DERNIER ref_omda
+// ============================================================
+const getLastRefOmda = async (client = pool) => {
+  try {
+    const result = await client.query(`
+      SELECT COALESCE(MAX(ref_omda), 0) as max_ref FROM facture_usager
+    `);
+    return result.rows[0].max_ref || 0;
+  } catch (error) {
+    console.error('❌ Erreur récupération dernier ref_omda:', error);
+    return 0;
+  }
+};
+
+// ============================================================
+// 0.2 CRÉER UNE LIGNE DANS QUITANCE_USAGER
+// ============================================================
+const creerQuittancePourFacture = async (client, idFacture, numQuitance, userId = null, personneRecu = null) => {
+  try {
+    const existing = await client.query(`
+      SELECT id FROM quitance_usager WHERE id_facture = $1
+    `, [idFacture]);
+
+    if (existing.rows.length > 0) {
+      console.log(`   ⚠️ Quittance déjà existante pour facture ${idFacture}`);
+      return existing.rows[0];
+    }
+
+    const numeroInt = parseInt(numQuitance, 10) || 1;
+    const numeroStr = String(numeroInt).padStart(7, '0');
+
+    const result = await client.query(`
+      INSERT INTO quitance_usager (
+        id_facture, num_quitance, num_quitance_formate,
+        longueur_format, quittance_validee, personne_recu, created_by
+      )
+      VALUES ($1, $2, $3, 7, FALSE, $4, $5)
+      RETURNING id, id_facture, num_quitance, num_quitance_formate
+    `, [idFacture, numeroInt, numeroStr, personneRecu, userId]);
+
+    console.log(`   ✅ Quittance créée: ${numeroStr} (pour facture ${idFacture})`);
+    return result.rows[0];
+  } catch (error) {
+    console.error('❌ Erreur création quittance:', error);
+    throw error;
+  }
+};
+
+// ============================================================
+// 0.3 FORMATER LE NUMÉRO DE QUITTANCE SUR 7 CHIFFRES
 // ============================================================
 const formatQuittance = (num) => {
   const n = parseInt(num, 10) || 0;
@@ -103,7 +107,7 @@ const formatQuittance = (num) => {
 };
 
 // ============================================================
-// 0.3 EXTRACTION DU MONTANT
+// 0.4 EXTRACTION DU MONTANT
 // ============================================================
 const extractMontantDepuisBase = (usagerData) => {
   const candidats = [
@@ -120,8 +124,7 @@ const extractMontantDepuisBase = (usagerData) => {
 };
 
 // ============================================================
-// 0.4 GET TABLE NAME
-// ✅ AJOUT : "other" → "usager_other"
+// 0.5 GET TABLE NAME
 // ============================================================
 const getTableName = (usagerType) => {
   const mapping = {
@@ -131,13 +134,13 @@ const getTableName = (usagerType) => {
     'bus': 'usagers_bus',
     'nightclub': 'usagers_nightclub',
     'occ': 'usagers_occasionnel',
-    'other': 'usager_other'   // ✅ AJOUTÉ
+    'other': 'usager_other'
   };
   return mapping[usagerType];
 };
 
 // ============================================================
-// 0.5 OBTENIR LES COLONNES D'UNE TABLE
+// 0.6 OBTENIR LES COLONNES D'UNE TABLE
 // ============================================================
 const getTableColumns = async (tableName) => {
   try {
@@ -145,6 +148,7 @@ const getTableColumns = async (tableName) => {
       SELECT column_name 
       FROM information_schema.columns 
       WHERE table_name = $1
+        AND table_schema IN ('omda_app', 'public')
     `, [tableName]);
     return result.rows.map(row => row.column_name);
   } catch (error) {
@@ -154,14 +158,14 @@ const getTableColumns = async (tableName) => {
 };
 
 // ============================================================
-// 0.6 VÉRIFIER SI UNE COLONNE EXISTE
+// 0.7 VÉRIFIER SI UNE COLONNE EXISTE
 // ============================================================
 const hasColumn = (columns, colName) => {
   return columns.includes(colName);
 };
 
 // ============================================================
-// 0.7 ✅ NOUVEAU : GET LIGNES OTHER (table other_lignes)
+// 0.8 GET LIGNES OTHER
 // ============================================================
 const getOtherLignes = async (usagerOtherId, client = pool) => {
   try {
@@ -179,7 +183,7 @@ const getOtherLignes = async (usagerOtherId, client = pool) => {
 };
 
 // ============================================================
-// 0.8 ✅ NOUVEAU : TYPE MAPPING (ref_client_type)
+// 0.9 TYPE MAPPING (ref_client_type)
 // ============================================================
 const getRefClientType = (usagerType) => {
   const typeMapping = {
@@ -189,7 +193,7 @@ const getRefClientType = (usagerType) => {
     'bus': 'TRP',
     'nightclub': 'NGT',
     'occ': 'OCC',
-    'other': 'OTH'   // ✅ AJOUTÉ
+    'other': 'OTH'
   };
   return typeMapping[usagerType] || 'AUT';
 };
@@ -279,9 +283,15 @@ router.post('/factures/creer', async (req, res) => {
     );
     const newRefOmda = (lastRefResult.rows[0].max_ref || 0) + 1;
 
-    const refClientType = getRefClientType(usagerType);   // ✅ Utilise le helper
+    const refClientType = getRefClientType(usagerType);
 
-    let nextQuittanceNum = frontQuittance || (await getLastQuittanceNumber(client) + 1);
+    let nextQuittanceNum;
+    if (frontQuittance) {
+      nextQuittanceNum = parseInt(String(frontQuittance).replace(/\D/g, ''), 10) || 1;
+    } else {
+      const dernier = await getLastQuittanceNumber(client);
+      nextQuittanceNum = dernier + 1;
+    }
     console.log(`📝 Numéro de quittance utilisé: ${nextQuittanceNum}`);
 
     const factureColumns = await getTableColumns('facture_usager');
@@ -299,7 +309,7 @@ router.post('/factures/creer', async (req, res) => {
       'organisateurs', 'representant_par', 'genre_manifestation',
       'artistes', 'date_evenement', 'lieu_evenement', 'domicile',
       'lieu_ajout', 'date_signature', 'confirmation_nom',
-      'personne_recu', 'quittance', 'quittance_validee',
+      'personne_recu',
       'moyens_communication', 'a_compter_du', 'echeance',
       'montant_mensuel', 'frais_dossier', 'montant_retard',
       'is_retard', 'soit_total', 'uniter',
@@ -367,8 +377,6 @@ router.post('/factures/creer', async (req, res) => {
       date_signature: usagerData.date_signature || null,
       confirmation_nom: usagerData.confirmation_nom || usagerData.demandeur || '',
       personne_recu: personneRecu || '',
-      quittance: nextQuittanceNum,
-      quittance_validee: frontQuittanceValidee || false,
       moyens_communication: usagerData.moyens_communication || null,
       a_compter_du: null,
       echeance: null,
@@ -393,18 +401,20 @@ router.post('/factures/creer', async (req, res) => {
     const values = existingColumns.map(col => valuesMap[col] !== undefined ? valuesMap[col] : null);
 
     const result = await client.query(query, values);
+    const nouvelleFactureId = result.rows[0].id;
+
+    await creerQuittancePourFacture(client, nouvelleFactureId, nextQuittanceNum, userId, personneRecu);
     
     const dafName = await getDAFName();
     
     await client.query('COMMIT');
     
-    console.log(`✅ Facture créée avec succès, ID: ${result.rows[0].id}`);
-    console.log(`📝 Quittance attribuée: ${formatQuittance(nextQuittanceNum)} (numéro ${nextQuittanceNum})`);
+    console.log(`✅ Facture créée: ID=${nouvelleFactureId}, Quittance=${formatQuittance(nextQuittanceNum)}`);
 
     res.json({
       success: true,
       message: 'Facture créée avec succès',
-      factureId: result.rows[0].id,
+      factureId: nouvelleFactureId,
       refOmda: newRefOmda,
       numFacture: String(newRefOmda).padStart(4, '0'),
       dafName: dafName,
@@ -415,7 +425,7 @@ router.post('/factures/creer', async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Erreur détaillée création facture:', error);
+    console.error('❌ Erreur création facture:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la création de la facture',
@@ -428,6 +438,7 @@ router.post('/factures/creer', async (req, res) => {
 
 // ============================================================
 // 2. CRÉER UNE FACTURE AVEC PAIEMENT (Type B et C)
+//    ✅ Accepte refOmdaBase du frontend pour Type B
 // ============================================================
 router.post('/factures/creer-avec-paiement', async (req, res) => {
   const client = await pool.connect();
@@ -457,6 +468,7 @@ router.post('/factures/creer-avec-paiement', async (req, res) => {
       descriptionPersonnalisee,
       quittance: frontQuittance,
       quittanceValidee: frontQuittanceValidee,
+      refOmdaBase: frontRefOmdaBase,
       isRenouvellement: frontIsRenouvellement,
       fraisRenouvellement: frontFraisRenouvellement,
       isRenouvellementFacture: frontIsRenouvellementFacture,
@@ -494,11 +506,9 @@ router.post('/factures/creer-avec-paiement', async (req, res) => {
     }
     const usagerData = usagerResult.rows[0];
 
-    // ✅ NOUVEAU : Pour "other", récupérer les lignes
     let otherLignes = [];
     if (usagerType === 'other') {
       otherLignes = await getOtherLignes(usagerId, client);
-      console.log(`📋 ${otherLignes.length} lignes other récupérées`);
     }
 
     let montantMensuel = frontMontantMensuel || extractMontantDepuisBase(usagerData) || 0;
@@ -519,15 +529,29 @@ router.post('/factures/creer-avec-paiement', async (req, res) => {
       (isRenouvellementFacture ? fraisRenouvellementFacture : 0)
     );
 
-    const lastRefResult = await client.query(
-      `SELECT COALESCE(MAX(ref_omda), 0) as max_ref FROM facture_usager`
-    );
-    const newRefOmda = (lastRefResult.rows[0].max_ref || 0) + 1;
+    // ✅ Utiliser refOmdaBase si fourni (Type B)
+    let newRefOmda;
+    if (frontRefOmdaBase !== undefined && frontRefOmdaBase !== null && !isNaN(parseInt(frontRefOmdaBase))) {
+      newRefOmda = parseInt(frontRefOmdaBase, 10);
+      console.log(`📌 refOmdaBase fourni: ${newRefOmda}`);
+    } else {
+      const lastRefResult = await client.query(
+        `SELECT COALESCE(MAX(ref_omda), 0) as max_ref FROM facture_usager`
+      );
+      newRefOmda = (lastRefResult.rows[0].max_ref || 0) + 1;
+      console.log(`📌 refOmdaBase calculé: ${newRefOmda}`);
+    }
 
-    const refClientType = getRefClientType(usagerType);   // ✅ Utilise le helper
+    const refClientType = getRefClientType(usagerType);
 
-    let nextQuittanceNum = frontQuittance || (await getLastQuittanceNumber(client) + 1);
-    console.log(`📝 Numéro de quittance utilisé pour cette facture ${numFactureType}: ${nextQuittanceNum}`);
+    let nextQuittanceNum;
+    if (frontQuittance) {
+      nextQuittanceNum = parseInt(String(frontQuittance).replace(/\D/g, ''), 10) || 1;
+    } else {
+      const dernier = await getLastQuittanceNumber(client);
+      nextQuittanceNum = dernier + 1;
+    }
+    console.log(`📝 Quittance pour facture ${numFactureType}: ${nextQuittanceNum}`);
 
     let numFactureDisplay = String(newRefOmda).padStart(4, '0');
     if (suffixe) {
@@ -549,7 +573,7 @@ router.post('/factures/creer-avec-paiement', async (req, res) => {
       'organisateurs', 'representant_par', 'genre_manifestation',
       'artistes', 'date_evenement', 'lieu_evenement', 'domicile',
       'lieu_ajout', 'date_signature', 'confirmation_nom',
-      'personne_recu', 'quittance', 'quittance_validee',
+      'personne_recu',
       'moyens_communication', 'a_compter_du', 'echeance',
       'montant_mensuel', 'frais_dossier', 'montant_retard',
       'is_retard', 'soit_total', 'uniter',
@@ -575,7 +599,6 @@ router.post('/factures/creer-avec-paiement', async (req, res) => {
       RETURNING id
     `;
 
-    // ✅ NOUVEAU : description_personnalisee auto pour "other" (lignes concaténées)
     let descPersoFinale = descriptionPersonnalisee || null;
     if (usagerType === 'other' && otherLignes.length > 0 && !descPersoFinale) {
       descPersoFinale = otherLignes.map(l =>
@@ -632,8 +655,6 @@ router.post('/factures/creer-avec-paiement', async (req, res) => {
       date_signature: usagerData.date_signature || null,
       confirmation_nom: usagerData.confirmation_nom || usagerData.demandeur || '',
       personne_recu: personneRecu || '',
-      quittance: nextQuittanceNum,
-      quittance_validee: frontQuittanceValidee || false,
       moyens_communication: usagerData.moyens_communication || null,
       a_compter_du: datePaiement || new Date().toISOString().split('T')[0],
       echeance: null,
@@ -660,18 +681,20 @@ router.post('/factures/creer-avec-paiement', async (req, res) => {
     const values = allColumns.map(col => valuesMap[col] !== undefined ? valuesMap[col] : null);
 
     const result = await client.query(query, values);
+    const nouvelleFactureId = result.rows[0].id;
+
+    await creerQuittancePourFacture(client, nouvelleFactureId, nextQuittanceNum, userId, personneRecu);
     
     const dafName = await getDAFName();
     
     await client.query('COMMIT');
     
-    console.log(`✅ Facture ${numFactureType} créée avec succès, ID: ${result.rows[0].id}`);
-    console.log(`📝 Quittance attribuée: ${formatQuittance(nextQuittanceNum)} (numéro ${nextQuittanceNum})`);
+    console.log(`✅ Facture ${numFactureType} créée: ID=${nouvelleFactureId}, N°=${numFactureDisplay}`);
 
     res.json({
       success: true,
       message: 'Facture avec paiement créée avec succès',
-      factureId: result.rows[0].id,
+      factureId: nouvelleFactureId,
       refOmda: newRefOmda,
       numFacture: numFactureDisplay,
       dafName: dafName,
@@ -680,12 +703,12 @@ router.post('/factures/creer-avec-paiement', async (req, res) => {
       mois: mois,
       annee: annee,
       soitTotal: soitTotal,
-      lignes: otherLignes   // ✅ Retourner les lignes
+      lignes: otherLignes
     });
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Erreur détaillée création facture avec paiement:', error);
+    console.error('❌ Erreur création facture avec paiement:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la création de la facture avec paiement',
@@ -764,11 +787,9 @@ router.post('/factures/creer-avec-paiement-groupe', async (req, res) => {
     }
     const usagerData = usagerResult.rows[0];
 
-    // ✅ NOUVEAU : Pour "other", récupérer les lignes
     let otherLignes = [];
     if (usagerType === 'other') {
       otherLignes = await getOtherLignes(usagerId, client);
-      console.log(`📋 ${otherLignes.length} lignes other récupérées`);
     }
 
     let montantMensuel = frontMontantMensuel || extractMontantDepuisBase(usagerData) || 0;
@@ -795,10 +816,16 @@ router.post('/factures/creer-avec-paiement-groupe', async (req, res) => {
     );
     const newRefOmda = (lastRefResult.rows[0].max_ref || 0) + 1;
 
-    const refClientType = getRefClientType(usagerType);   // ✅ Utilise le helper
+    const refClientType = getRefClientType(usagerType);
 
-    let nextQuittanceNum = frontQuittance || (await getLastQuittanceNumber(client) + 1);
-    console.log(`📝 Numéro de quittance utilisé pour cette facture groupée: ${nextQuittanceNum}`);
+    let nextQuittanceNum;
+    if (frontQuittance) {
+      nextQuittanceNum = parseInt(String(frontQuittance).replace(/\D/g, ''), 10) || 1;
+    } else {
+      const dernier = await getLastQuittanceNumber(client);
+      nextQuittanceNum = dernier + 1;
+    }
+    console.log(`📝 Quittance pour facture groupée: ${nextQuittanceNum}`);
 
     const moisGroupesStr = moisGroupes ? moisGroupes.join(',') : null;
     const premierMois = moisGroupes && moisGroupes.length > 0 ? moisGroupes[0] : 1;
@@ -818,7 +845,7 @@ router.post('/factures/creer-avec-paiement-groupe', async (req, res) => {
       'organisateurs', 'representant_par', 'genre_manifestation',
       'artistes', 'date_evenement', 'lieu_evenement', 'domicile',
       'lieu_ajout', 'date_signature', 'confirmation_nom',
-      'personne_recu', 'quittance', 'quittance_validee',
+      'personne_recu',
       'moyens_communication', 'a_compter_du', 'echeance',
       'montant_mensuel', 'frais_dossier', 'montant_retard',
       'is_retard', 'soit_total', 'uniter',
@@ -844,7 +871,6 @@ router.post('/factures/creer-avec-paiement-groupe', async (req, res) => {
       RETURNING id
     `;
 
-    // ✅ NOUVEAU : description_personnalisee auto pour "other"
     let descPersoFinale = descriptionPersonnalisee || null;
     if (usagerType === 'other' && otherLignes.length > 0 && !descPersoFinale) {
       descPersoFinale = otherLignes.map(l =>
@@ -901,8 +927,6 @@ router.post('/factures/creer-avec-paiement-groupe', async (req, res) => {
       date_signature: usagerData.date_signature || null,
       confirmation_nom: usagerData.confirmation_nom || usagerData.demandeur || '',
       personne_recu: personneRecu || '',
-      quittance: nextQuittanceNum,
-      quittance_validee: frontQuittanceValidee || false,
       moyens_communication: usagerData.moyens_communication || null,
       a_compter_du: datePaiement || new Date().toISOString().split('T')[0],
       echeance: null,
@@ -930,18 +954,20 @@ router.post('/factures/creer-avec-paiement-groupe', async (req, res) => {
     const values = allColumns.map(col => valuesMap[col] !== undefined ? valuesMap[col] : null);
 
     const result = await client.query(query, values);
+    const nouvelleFactureId = result.rows[0].id;
+
+    await creerQuittancePourFacture(client, nouvelleFactureId, nextQuittanceNum, userId, personneRecu);
     
     const dafName = await getDAFName();
     
     await client.query('COMMIT');
     
-    console.log(`✅ Facture groupée créée avec succès, ID: ${result.rows[0].id}`);
-    console.log(`📝 Quittance attribuée: ${formatQuittance(nextQuittanceNum)} (numéro ${nextQuittanceNum})`);
+    console.log(`✅ Facture groupée créée: ID=${nouvelleFactureId}`);
 
     res.json({
       success: true,
       message: 'Facture groupée créée avec succès',
-      factureId: result.rows[0].id,
+      factureId: nouvelleFactureId,
       refOmda: newRefOmda,
       numFacture: String(newRefOmda).padStart(4, '0'),
       dafName: dafName,
@@ -949,12 +975,12 @@ router.post('/factures/creer-avec-paiement-groupe', async (req, res) => {
       quittanceNumber: nextQuittanceNum,
       moisGroupes: moisGroupes,
       soitTotal: soitTotal,
-      lignes: otherLignes   // ✅ Retourner les lignes
+      lignes: otherLignes
     });
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Erreur détaillée création facture groupée:', error);
+    console.error('❌ Erreur création facture groupée:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la création de la facture groupée',
@@ -966,88 +992,78 @@ router.post('/factures/creer-avec-paiement-groupe', async (req, res) => {
 });
 
 // ============================================================
-// 4. RÉCUPÉRER LE NOM DU DAF
+// 4. RÉCUPÉRER LE DERNIER ref_omda (pour Type B)
 // ============================================================
-router.get('/daf/name', async (req, res) => {
+router.get('/factures/last-ref-omda', async (req, res) => {
   try {
-    const dafName = await getDAFName();
+    const lastRef = await getLastRefOmda();
     res.json({
       success: true,
-      dafName: dafName
+      lastRefOmda: lastRef,
+      nextRefOmda: lastRef + 1,
+      nextRefOmdaFormate: String(lastRef + 1).padStart(4, '0')
     });
   } catch (error) {
-    console.error('❌ Erreur récupération DAF:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    console.error('❌ Erreur récupération dernier ref_omda:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // ============================================================
-// 5. RÉCUPÉRER LE DERNIER NUMÉRO DE QUITTANCE
+// 5. RÉCUPÉRER LE NOM DU DAF
 // ============================================================
-router.get('/quittance/last', async (req, res) => {
+router.get('/daf/name', async (req, res) => {
   try {
-    const lastNum = await getLastQuittanceNumber();
-    const nextNum = lastNum + 1;
-    res.json({
-      success: true,
-      lastQuittance: lastNum,
-      nextQuittance: formatQuittance(nextNum)
-    });
+    const dafName = await getDAFName();
+    res.json({ success: true, dafName: dafName });
   } catch (error) {
-    console.error('❌ Erreur récupération quittance:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    console.error('❌ Erreur récupération DAF:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // ============================================================
 // 6. RÉCUPÉRER UNE FACTURE PAR ID
-// ✅ AJOUT : si ref_client_type === 'OTH', charger les lignes other
 // ============================================================
 router.get('/factures/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query(
-      `SELECT * FROM facture_usager WHERE id = $1`,
-      [id]
-    );
+    const result = await pool.query(`SELECT * FROM facture_usager WHERE id = $1`, [id]);
     
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Facture non trouvée'
-      });
+      return res.status(404).json({ success: false, message: 'Facture non trouvée' });
     }
     
     const facture = result.rows[0];
     
-    // ✅ NOUVEAU : Charger les lignes other si c'est une facture OTH
     if (facture.ref_client_type === 'OTH') {
       facture.lignes_other = await getOtherLignes(facture.ref_usager);
+    }
+    
+    try {
+      const quittanceResult = await pool.query(`
+        SELECT num_quitance, num_quitance_formate, quittance_validee, personne_recu
+        FROM quitance_usager WHERE id_facture = $1
+      `, [id]);
+      
+      if (quittanceResult.rows.length > 0) {
+        facture.quittance = quittanceResult.rows[0].num_quitance_formate;
+        facture.quittance_validee = quittanceResult.rows[0].quittance_validee;
+        if (!facture.personne_recu) {
+          facture.personne_recu = quittanceResult.rows[0].personne_recu;
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ Erreur chargement quittance:', e.message);
     }
     
     const dafName = await getDAFName();
     facture.daf_nom = dafName;
     
-    if (facture.quittance !== null && facture.quittance !== undefined) {
-      facture.quittance = formatQuittance(facture.quittance);
-    }
-    
-    res.json({
-      success: true,
-      facture: facture
-    });
+    res.json({ success: true, facture: facture });
   } catch (error) {
     console.error('❌ Erreur récupération facture:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -1060,29 +1076,28 @@ router.get('/factures', async (req, res) => {
     
     const result = await pool.query(`
       SELECT 
-        id, ref_omda, num_facture, num_facture_type,
-        ref_client_type, ref_usager, type_facture,
-        region_usager, date_ajout, denomination,
-        demandeur, telephone, montant_mensuel,
-        frais_dossier, montant_retard, is_retard,
-        soit_total, uniter, statut, personne_recu,
-        quittance, quittance_validee,
-        is_renouvellement, frais_renouvellement,
-        is_renouvellement_facture, frais_renouvellement_facture,
-        mois_facture, annee_facture, mois_groupes, type_groupe,
-        suffixe, description_personnalisee,
-        created_at, created_by
-      FROM facture_usager 
-      ORDER BY created_at DESC
+        f.id, f.ref_omda, f.num_facture, f.num_facture_type,
+        f.ref_client_type, f.ref_usager, f.type_facture,
+        f.region_usager, f.date_ajout, f.denomination,
+        f.demandeur, f.telephone, f.montant_mensuel,
+        f.frais_dossier, f.montant_retard, f.is_retard,
+        f.soit_total, f.uniter, f.statut, f.personne_recu,
+        f.is_renouvellement, f.frais_renouvellement,
+        f.is_renouvellement_facture, f.frais_renouvellement_facture,
+        f.mois_facture, f.annee_facture, f.mois_groupes, f.type_groupe,
+        f.suffixe, f.description_personnalisee,
+        f.created_at, f.created_by,
+        q.num_quitance, q.num_quitance_formate, q.quittance_validee
+      FROM facture_usager f
+      LEFT JOIN quitance_usager q ON q.id_facture = f.id
+      ORDER BY f.created_at DESC
     `);
     
     const dafName = await getDAFName();
     const factures = result.rows.map(f => ({
       ...f,
       daf_nom: dafName,
-      quittance: f.quittance !== null && f.quittance !== undefined 
-        ? formatQuittance(f.quittance) 
-        : ''
+      quittance: f.num_quitance_formate || ''
     }));
     
     res.json({
@@ -1090,7 +1105,6 @@ router.get('/factures', async (req, res) => {
       factures: factures,
       total: factures.length
     });
-    
   } catch (error) {
     console.error('❌ Erreur récupération factures:', error);
     res.status(500).json({
@@ -1126,7 +1140,6 @@ router.put('/factures/:id', async (req, res) => {
       'moyens_communication', 'a_compter_du', 'echeance',
       'montant_mensuel', 'frais_dossier', 'montant_retard',
       'is_retard', 'soit_total', 'uniter',
-      'quittance', 'quittance_validee',
       'description_personnalisee', 'suffixe',
       'is_renouvellement', 'frais_renouvellement',
       'is_renouvellement_facture', 'frais_renouvellement_facture'
@@ -1135,12 +1148,7 @@ router.put('/factures/:id', async (req, res) => {
     const filteredUpdates = {};
     for (const key of allowedFields) {
       if (updates[key] !== undefined) {
-        if (key === 'quittance') {
-          const clean = String(updates[key]).replace(/\D/g, '');
-          filteredUpdates[key] = clean ? parseInt(clean, 10) : null;
-        } else {
-          filteredUpdates[key] = updates[key];
-        }
+        filteredUpdates[key] = updates[key];
       }
     }
     
@@ -1212,17 +1220,12 @@ router.put('/factures/:id', async (req, res) => {
     
     const facture = result.rows[0];
     
-    // ✅ NOUVEAU : Charger les lignes other si c'est une facture OTH
     if (facture.ref_client_type === 'OTH') {
       facture.lignes_other = await getOtherLignes(facture.ref_usager);
     }
     
     const dafName = await getDAFName();
     facture.daf_nom = dafName;
-    
-    if (facture.quittance !== null && facture.quittance !== undefined) {
-      facture.quittance = formatQuittance(facture.quittance);
-    }
     
     res.json({
       success: true,
@@ -1231,10 +1234,7 @@ router.put('/factures/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Erreur mise à jour facture:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -1255,10 +1255,7 @@ router.patch('/factures/:id/valider', async (req, res) => {
     );
     
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Facture non trouvée'
-      });
+      return res.status(404).json({ success: false, message: 'Facture non trouvée' });
     }
     
     const dafName = await getDAFName();
@@ -1271,10 +1268,7 @@ router.patch('/factures/:id/valider', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Erreur validation facture:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -1291,28 +1285,18 @@ router.delete('/factures/:id', async (req, res) => {
     );
     
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Facture non trouvée'
-      });
+      return res.status(404).json({ success: false, message: 'Facture non trouvée' });
     }
     
-    res.json({
-      success: true,
-      message: 'Facture supprimée avec succès'
-    });
+    res.json({ success: true, message: 'Facture supprimée avec succès' });
   } catch (error) {
     console.error('❌ Erreur suppression facture:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // ============================================================
-// GET - Récupérer les usagers par type
-// ✅ AJOUT : "other" → "usager_other" + lignes other
+// 11. GET - Récupérer les usagers par type
 // ============================================================
 router.get('/factures/type/:type', async (req, res) => {
   const { type } = req.params;
@@ -1326,7 +1310,7 @@ router.get('/factures/type/:type', async (req, res) => {
       'bus': 'usagers_bus',
       'nightclub': 'usagers_nightclub',
       'occ': 'usagers_occasionnel',
-      'other': 'usager_other'   // ✅ AJOUTÉ
+      'other': 'usager_other'
     };
     
     const tableName = typeMapping[type];
@@ -1341,14 +1325,15 @@ router.get('/factures/type/:type', async (req, res) => {
     
     const usagers = await Promise.all(result.rows.map(async (usager) => {
       const factureResult = await pool.query(`
-        SELECT * FROM facture_usager 
-        WHERE ref_usager = $1 AND ref_client_type = $2
-        ORDER BY created_at DESC LIMIT 1
+        SELECT f.*, q.num_quitance_formate as quittance_formate
+        FROM facture_usager f
+        LEFT JOIN quitance_usager q ON q.id_facture = f.id
+        WHERE f.ref_usager = $1 AND f.ref_client_type = $2
+        ORDER BY f.created_at DESC LIMIT 1
       `, [usager.id, getRefClientType(type)]);
       
       const facture = factureResult.rows[0] || {};
       
-      // ✅ NOUVEAU : Charger les lignes other
       let lignes_other = [];
       if (type === 'other') {
         lignes_other = await getOtherLignes(usager.id);
@@ -1376,8 +1361,8 @@ router.get('/factures/type/:type', async (req, res) => {
         id: usager.id,
         type_usager: type,
         artistes_detail: artistes_detail,
-        lignes_other: lignes_other,   // ✅ AJOUTÉ
-        quittance: facture.quittance || null,
+        lignes_other: lignes_other,
+        quittance: facture.quittance_formate || null,
         soit_total: facture.soit_total || usager.montant || usager.montant_mensuel || 0,
         region_usager: facture.region_usager || usager.region || '',
         numero_dossier_utilisateur: usager.numero_dossier_utilisateur || facture.numero_dossier_utilisateur || '',
@@ -1397,7 +1382,6 @@ router.get('/factures/type/:type', async (req, res) => {
       usagers: usagers,
       total: usagers.length
     });
-    
   } catch (error) {
     console.error('❌ Erreur récupération usagers par type:', error);
     res.status(500).json({

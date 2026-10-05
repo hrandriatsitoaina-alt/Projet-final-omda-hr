@@ -1,6 +1,6 @@
 // src/App.jsx
 import React from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ParametreProvider } from './context/ParametreContext';
 import { ToastProvider } from './components/Toast';
 import './styles/App.css';
@@ -38,14 +38,27 @@ import RepartitionArtister from './pages/repartition_artister';
 import Diagnostique from './pages/diagnostique';
 import OtherAjout from './pages/OtherAjout';
 import DateOther from './pages/DateOther';
+import Comptet from './pages/comptet';
+import ComptetTypeDetail from './pages/ComptetTypeDetail';   
+
+function AuthRoute() {
+  const location = useLocation();
+  const resetKey = location.state?.resetKey || location.key;
+
+  return <Authentification key={resetKey} />;
+}
 
 function App() {
   return (
-
     <ToastProvider>
       <ParametreProvider>
         <Routes>
-          <Route path="/" element={<Authentification />} />
+          <Route path="/" element={<AuthRoute />} />
+          <Route
+            path="/authentification"
+            element={<Navigate to="/" replace state={{ resetKey: Date.now() }} />}
+          />
+
           <Route path="/register" element={<Register />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/profil" element={<Profil />} />
@@ -78,6 +91,15 @@ function App() {
           <Route path="/diagnostique" element={<Diagnostique />} />
           <Route path="/other-ajout" element={<OtherAjout />} />
           <Route path="/date_other" element={<DateOther />} />
+
+          {/*  Page Compte globale */}
+          <Route path="/comptet" element={<Comptet />} />
+
+          {/*  AJOUT : Page Compte détail par type */}
+          <Route path="/comptet/type/:type" element={<ComptetTypeDetail />} />
+
+          {/* Fallback : toute route inconnue → racine */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </ParametreProvider>
     </ToastProvider>

@@ -3,7 +3,8 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
-const pool = require('../database');
+// ✅ MODIFIÉ : utilise le wrapper query() avec retry automatique
+const { query } = require('../database');
 
 const PACKAGE_JSON_PATH = path.join(__dirname, '..', '..', 'package.json');
 
@@ -22,13 +23,13 @@ function lireVersionActuelle() {
 router.get('/parametres/:userId', async (req, res) => {
   const { userId } = req.params;
   try {
-    let result = await pool.query(
+    let result = await query(
       'SELECT * FROM omda_app.parametres_utilisateur WHERE utilisateur_id = $1',
       [userId]
     );
 
     if (result.rows.length === 0) {
-      result = await pool.query(
+      result = await query(
         `INSERT INTO omda_app.parametres_utilisateur (utilisateur_id)
          VALUES ($1) RETURNING *`,
         [userId]
@@ -48,13 +49,13 @@ router.get('/parametres/:userId', async (req, res) => {
 router.get('/parametres/utilisateur/:userId', async (req, res) => {
   const { userId } = req.params;
   try {
-    let result = await pool.query(
+    let result = await query(
       'SELECT * FROM omda_app.parametres_utilisateur WHERE utilisateur_id = $1',
       [userId]
     );
 
     if (result.rows.length === 0) {
-      result = await pool.query(
+      result = await query(
         `INSERT INTO omda_app.parametres_utilisateur (utilisateur_id)
          VALUES ($1) RETURNING *`,
         [userId]
@@ -87,19 +88,19 @@ router.put('/parametres/:userId', async (req, res) => {
   }
 
   try {
-    const existing = await pool.query(
+    const existing = await query(
       'SELECT id FROM omda_app.parametres_utilisateur WHERE utilisateur_id = $1',
       [userId]
     );
 
     if (existing.rows.length === 0) {
-      await pool.query(
+      await query(
         `INSERT INTO omda_app.parametres_utilisateur (utilisateur_id) VALUES ($1)`,
         [userId]
       );
     }
 
-    const result = await pool.query(
+    const result = await query(
       `UPDATE omda_app.parametres_utilisateur SET
         app_name = COALESCE($1, app_name),
         langue = COALESCE($2, langue),
@@ -142,7 +143,7 @@ router.put('/parametres/:userId', async (req, res) => {
 router.post('/parametres/notifications/:userId/test', async (req, res) => {
   const { userId } = req.params;
   try {
-    await pool.query(
+    await query(
       `INSERT INTO omda_app.notifications (message, type, created_by)
        VALUES ($1, 'info', $2)`,
       ['Ceci est une notification de test.', userId]
@@ -161,7 +162,7 @@ router.get('/parametres/stats-charts', async (req, res) => {
   try {
     const currentYear = new Date().getFullYear();
 
-    const monthlyResult = await pool.query(
+    const monthlyResult = await query(
       `SELECT EXTRACT(MONTH FROM date_paiement)::int AS mois,
               COALESCE(SUM(montant), 0) AS total
        FROM omda_app.paiements
@@ -189,8 +190,8 @@ router.get('/parametres/stats-charts', async (req, res) => {
     const repartition = [];
     for (const type of types) {
       try {
-        const totalUsagers = await pool.query(`SELECT COUNT(*) FROM omda_app.${type.table}`);
-        const totalMontant = await pool.query(
+        const totalUsagers = await query(`SELECT COUNT(*) FROM omda_app.${type.table}`);
+        const totalMontant = await query(
           `SELECT COALESCE(SUM(montant),0) as total FROM omda_app.paiements WHERE usager_type = $1`,
           [type.key]
         );
@@ -216,7 +217,7 @@ router.get('/parametres/stats-charts', async (req, res) => {
 // ============================================================
 router.get('/parametres/db-size', async (req, res) => {
   try {
-    const result = await pool.query(`SELECT pg_database_size('omda_db') as size`);
+    const result = await query(`SELECT pg_database_size('omda_db') as size`);
     const sizeBytes = parseInt(result.rows[0].size) || 0;
     let sizeStr = '0 MB';
     if (sizeBytes > 0) {

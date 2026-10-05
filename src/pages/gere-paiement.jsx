@@ -52,6 +52,9 @@ const GerePaiement = () => {
   const [otherUsagers, setOtherUsagers] = useState([]);
   const [loadingOther, setLoadingOther] = useState(false);
 
+  // ✅ MODALE DÉTAIL USAGER
+  const [detailUsager, setDetailUsager] = useState(null);
+
   // ✅ Paiements bruts (contient mois_payes)
   const [paiementsRaw, setPaiementsRaw] = useState([]);
 
@@ -69,7 +72,7 @@ const GerePaiement = () => {
 
   const notificationsAffichees = useRef(new Set());
 
-  // ✅ Labels des types événementiels (traduits)
+  // ✅ Labels des types événementiels
   const otherTypeLabels = useMemo(() => ({
     cd: 'CD',
     mp3: 'MP3',
@@ -79,7 +82,6 @@ const GerePaiement = () => {
     autre: t('Autre', 'Hafa', 'Other'),
   }), [t]);
 
-  // ✅ 6 types dont "other"
   const typeConfig = useMemo(() => ({
     hotel: { label: t('Hôtels', 'Hotely', 'Hotels'), icon: Hotel },
     'grand-surface': { label: t('Grandes Surfaces', 'Fivarotana lehibe', 'Large Stores'), icon: Store },
@@ -89,7 +91,6 @@ const GerePaiement = () => {
     other: { label: t('Usager événementiel', 'Mpampiasa hetsika', 'Event user'), icon: Package },
   }), [t]);
 
-  // ✅ Mois traduits
   const moisLabels = useMemo(() => {
     if (langue === 'en') {
       return ['January', 'February', 'March', 'April', 'May', 'June',
@@ -114,14 +115,9 @@ const GerePaiement = () => {
   }, [langue]);
 
   // ============================================================
-  // ✅ MAP : mois payés par usager/type/année
-  //    ⚠️ CORRECTION : on ne compte que les lignes ayant un
-  //    mois_payes valide pour éviter les doublons des anciens tests.
-  //    Les lignes sans mois_payes sont ignorées SI au moins une
-  //    ligne avec mois_payes existe pour le même usager/type/année.
+  // MAP : mois payés par usager/type/année
   // ============================================================
   const moisPayesMap = useMemo(() => {
-    // 1. Grouper les paiements par usager_type_annee
     const groups = {};
     for (const p of paiementsRaw) {
       if (p.statut !== 'paye') continue;
@@ -132,14 +128,12 @@ const GerePaiement = () => {
       groups[groupKey].push(p);
     }
 
-    // 2. Construire le map final
     const map = {};
     for (const groupKey in groups) {
       const paiements = groups[groupKey];
       const [usagerId, usagerType, annee] = groupKey.split('_');
       const key = `${usagerId}_${usagerType}`;
 
-      // ✅ Vérifier si AU MOINS UN paiement a un mois_payes valide
       const paiementsAvecMoisPayes = paiements.filter(p => {
         if (!p.mois_payes) return false;
         if (Array.isArray(p.mois_payes)) return p.mois_payes.length > 0;
@@ -152,13 +146,10 @@ const GerePaiement = () => {
         return false;
       });
 
-      // ✅ Si on a des paiements avec mois_payes → ignorer les anciens (sans mois_payes)
-      //    Sinon → utiliser les anciens (compatibilité)
       const paiementsAUtiliser = paiementsAvecMoisPayes.length > 0
         ? paiementsAvecMoisPayes
         : paiements;
 
-      // Initialiser le map
       if (!map[key]) map[key] = {};
       if (!map[key][annee]) map[key][annee] = new Set();
 
@@ -176,7 +167,6 @@ const GerePaiement = () => {
           }
         }
 
-        // Si pas de mois_payes → utiliser mois unique
         if (moisList.length === 0 && p.mois) {
           moisList = [p.mois];
         }
@@ -189,7 +179,6 @@ const GerePaiement = () => {
       }
     }
 
-    // Convertir les Sets en tableaux triés
     const result = {};
     for (const key in map) {
       result[key] = {};
@@ -329,7 +318,7 @@ const GerePaiement = () => {
       setAnneesDisponibles([currentYear, currentYear + 1]);
       setNotification({
         type: 'error',
-        message: t('Erreur de chargement des données', 'Nisy olana tamin\'ny fakana ny angona', 'Error loading data'),
+        message: t('Erreur de chargement des données', 'Nisy olana', 'Error loading data'),
       });
     } finally {
       setLoading(false);
@@ -371,7 +360,7 @@ const GerePaiement = () => {
   }, [filterUsagers]);
 
   // ============================================================
-  // ✅ FONCTIONS PAIEMENT
+  // FONCTIONS PAIEMENT
   // ============================================================
   const getMoisPayesComplet = useCallback((usager, annee, typeOverride = null) => {
     if (!usager) return [];
@@ -379,8 +368,6 @@ const GerePaiement = () => {
     const key = `${usager.id}_${typeKey}`;
     return moisPayesMap[key]?.[annee] || [];
   }, [moisPayesMap, selectedType]);
-
-  const getMoisPayes = useCallback((usager, annee) => getMoisPayesComplet(usager, annee), [getMoisPayesComplet]);
 
   const getMoisDebut = (usager, annee) => {
     const anneeData = usager.resumeAnnees?.find(a => a.annee === annee);
@@ -428,35 +415,43 @@ const GerePaiement = () => {
     return <span className="badge badge-danger"><X size={14} /> 0/12</span>;
   };
 
+  // ✅ Récupère les infos détaillées (utilisées dans la modale)
   const getFullInfo = (usager, type) => {
     const infos = [];
-    if (usager.adresse || usager.adresse_siege) infos.push({ icon: null, text: usager.adresse || usager.adresse_siege });
-    if (usager.region && usager.region !== 'N/A') infos.push({ icon: MapPin, text: usager.region });
-    if (usager.email) infos.push({ icon: Mail, text: usager.email });
+    if (usager.adresse || usager.adresse_siege) infos.push({ icon: MapPin, label: t('Adresse', 'Adiresy', 'Address'), text: usager.adresse || usager.adresse_siege });
+    if (usager.region && usager.region !== 'N/A') infos.push({ icon: MapPin, label: t('Région', 'Faritra', 'Region'), text: usager.region });
+    if (usager.email) infos.push({ icon: Mail, label: 'Email', text: usager.email });
+    if (usager.telephone) infos.push({ icon: Phone, label: t('Téléphone', 'Finday', 'Phone'), text: usager.telephone });
+    if (usager.nif_stat) infos.push({ icon: FileText, label: 'NIF/STAT', text: usager.nif_stat });
     switch (type) {
       case 'hotel':
-        if (usager.etoiles) infos.push({ icon: Star, text: `${usager.etoiles} ${t('étoiles', 'kintana', 'stars')}` });
-        if (usager.ravinala) infos.push({ icon: Award, text: t('Label Ravinala', 'Tombokaso Ravinala', 'Ravinala Label') });
+        if (usager.etoiles) infos.push({ icon: Star, label: t('Étoiles', 'Kintana', 'Stars'), text: `${usager.etoiles} ${t('étoiles', 'kintana', 'stars')}` });
+        if (usager.ravinala) infos.push({ icon: Award, label: 'Label', text: t('Label Ravinala', 'Tombokaso Ravinala', 'Ravinala Label') });
+        if (usager.activite) infos.push({ icon: FileText, label: t('Activité', 'Asa', 'Activity'), text: usager.activite });
         break;
       case 'grand-surface':
-        if (usager.nombre_magasins) infos.push({ icon: Store, text: `${usager.nombre_magasins} ${t('magasins', 'fivarotana', 'stores')}` });
-        if (usager.activite) infos.push({ icon: FileText, text: usager.activite });
+        if (usager.nombre_magasins) infos.push({ icon: Store, label: t('Magasins', 'Fivarotana', 'Stores'), text: `${usager.nombre_magasins}` });
+        if (usager.activite) infos.push({ icon: FileText, label: t('Activité', 'Asa', 'Activity'), text: usager.activite });
         break;
       case 'bus':
-        if (usager.nombre_vehicules) infos.push({ icon: Bus, text: `${usager.nombre_vehicules} ${t('bus', 'fiara', 'buses')}` });
-        if (usager.lignes) infos.push({ icon: MapPin, text: `${t('Ligne', 'Lalana', 'Line')} : ${usager.lignes}` });
-        if (usager.trajet) infos.push({ icon: MapPin, text: `${t('Trajet', 'Lalana', 'Route')} : ${usager.trajet}` });
+        if (usager.nombre_vehicules) infos.push({ icon: Bus, label: t('Véhicules', 'Fiara', 'Vehicles'), text: `${usager.nombre_vehicules}` });
+        if (usager.lignes) infos.push({ icon: MapPin, label: t('Ligne', 'Lalana', 'Line'), text: usager.lignes });
+        if (usager.trajet) infos.push({ icon: MapPin, label: t('Trajet', 'Lalana', 'Route'), text: usager.trajet });
+        if (usager.type_bus) infos.push({ icon: Bus, label: t('Type', 'Karazana', 'Type'), text: usager.type_bus });
         break;
       case 'nightclub':
-        if (usager.jauge_max) infos.push({ icon: Users, text: `${t('Jauge', 'Fahaiza-mandray', 'Capacity')} : ${usager.jauge_max}` });
+        if (usager.jauge_max) infos.push({ icon: Users, label: t('Jauge max', 'Fahaiza-mandray', 'Max capacity'), text: `${usager.jauge_max}` });
         break;
       case 'media':
-        if (usager.frequence) infos.push({ icon: Tv, text: `${t('Fréquence', 'Fahita', 'Frequency')} : ${usager.frequence}` });
-        if (usager.canal) infos.push({ icon: Tv, text: `${t('Canal', 'Fantsona', 'Channel')} : ${usager.canal}` });
+        if (usager.frequence) infos.push({ icon: Tv, label: t('Fréquence', 'Fahita', 'Frequency'), text: usager.frequence });
+        if (usager.canal) infos.push({ icon: Tv, label: t('Canal', 'Fantsona', 'Channel'), text: usager.canal });
         break;
       default:
         break;
     }
+    if (usager.representant_nom) infos.push({ icon: Users, label: t('Représentant', 'Mpisolo tena', 'Representative'), text: usager.representant_nom });
+    if (usager.representant_cin) infos.push({ icon: CreditCard, label: 'CIN', text: usager.representant_cin });
+    if (usager.representant_tel) infos.push({ icon: Phone, label: t('Tél. représentant', 'Finday mpisolo', 'Rep. phone'), text: usager.representant_tel });
     return infos;
   };
 
@@ -553,6 +548,7 @@ const GerePaiement = () => {
             <th>{t('Contact', 'Fifandraisana', 'Contact')}</th>
             <th>{t('Mode paiement', 'Fomba fandoavana', 'Payment mode')}</th>
             <th>{t('Statut', 'Toe-javatra', 'Status')}</th>
+            <th>{t('Détails', 'Antsipiriany', 'Details')}</th>
             <th>{t('Action', 'Hetsika', 'Action')}</th>
           </tr>
         </thead>
@@ -563,7 +559,6 @@ const GerePaiement = () => {
             const lignes = u.lignes || [];
             const isUnique = u.mode_paiement === 'unique';
 
-            // ✅ Récupérer les mois payés pour afficher le statut
             const moisPayes = getMoisPayesComplet(u, filtreAnnee, 'other');
             const nbMoisPayes = moisPayes.length;
             const moisTries = [...moisPayes].sort((a, b) => a - b);
@@ -585,7 +580,6 @@ const GerePaiement = () => {
                   {u.region && u.region !== 'N/A' && (
                     <div className="usager-sub"><MapPin size={12} /> {u.region}</div>
                   )}
-                  {u.adresse && <div className="usager-sub">{u.adresse}</div>}
                 </td>
 
                 <td data-label="Type">
@@ -642,6 +636,18 @@ const GerePaiement = () => {
                       <X size={14} /> 0/12
                     </span>
                   )}
+                </td>
+
+                {/* ✅ BOUTON ŒIL DÉTAILS */}
+                <td data-label="Détails">
+                  <button
+                    type="button"
+                    className="btn-eye"
+                    onClick={() => setDetailUsager({ usager: u, type: 'other' })}
+                    title={t('Voir les détails', 'Jereo ny antsipiriany', 'View details')}
+                  >
+                    <Eye size={16} />
+                  </button>
                 </td>
 
                 <td data-label="Action">
@@ -765,19 +771,6 @@ const GerePaiement = () => {
           color: #1e8449;
           border: 1px solid rgba(39, 174, 96, 0.3);
         }
-        .quittance-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          padding: 4px 10px;
-          background: #f0fdf4;
-          color: #166534;
-          border-radius: 20px;
-          font-size: 12px;
-          font-weight: 700;
-          font-family: 'Courier New', monospace;
-          border: 1px solid #86efac;
-        }
         .tag-other {
           display: inline-flex;
           align-items: center;
@@ -851,6 +844,167 @@ const GerePaiement = () => {
           font-weight: 500;
           opacity: 0.85;
         }
+        /* ✅ Bouton œil */
+        .btn-eye {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 34px;
+          height: 34px;
+          border-radius: 8px;
+          background: rgba(74, 144, 217, 0.1);
+          color: #357ABD;
+          border: 1px solid rgba(74, 144, 217, 0.25);
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        .btn-eye:hover {
+          background: #4A90D9;
+          color: #fff;
+          border-color: #4A90D9;
+          transform: scale(1.05);
+        }
+        /* ✅ Modale détail */
+        .detail-modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.55);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 2000;
+          padding: 20px;
+          animation: fadeIn 0.2s ease;
+        }
+        .detail-modal {
+          background: #fff;
+          border-radius: 14px;
+          max-width: 620px;
+          width: 100%;
+          max-height: 88vh;
+          overflow-y: auto;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+          animation: slideUp 0.25s ease;
+        }
+        .detail-modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 18px 22px;
+          background: linear-gradient(135deg, #4A90D9, #357ABD);
+          color: #fff;
+          border-radius: 14px 14px 0 0;
+        }
+        .detail-modal-header h3 {
+          margin: 0;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 18px;
+          font-weight: 700;
+        }
+        .detail-modal-close {
+          background: rgba(255, 255, 255, 0.2);
+          border: none;
+          color: #fff;
+          cursor: pointer;
+          width: 32px;
+          height: 32px;
+          border-radius: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.2s;
+        }
+        .detail-modal-close:hover {
+          background: rgba(255, 255, 255, 0.35);
+        }
+        .detail-modal-body {
+          padding: 20px 22px;
+        }
+        .detail-section {
+          margin-bottom: 18px;
+        }
+        .detail-section-title {
+          font-size: 12px;
+          font-weight: 700;
+          color: #7f8c8d;
+          text-transform: uppercase;
+          letter-spacing: 0.6px;
+          margin-bottom: 10px;
+          padding-bottom: 6px;
+          border-bottom: 2px solid #eef2f7;
+        }
+        .detail-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px 16px;
+        }
+        .detail-item {
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          padding: 8px 10px;
+          background: #f8fafc;
+          border-radius: 8px;
+          border: 1px solid #eef2f7;
+        }
+        .detail-item-icon {
+          flex-shrink: 0;
+          width: 28px;
+          height: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(74, 144, 217, 0.12);
+          color: #357ABD;
+          border-radius: 6px;
+        }
+        .detail-item-content {
+          display: flex;
+          flex-direction: column;
+          gap: 1px;
+          min-width: 0;
+          flex: 1;
+        }
+        .detail-item-label {
+          font-size: 10.5px;
+          color: #7f8c8d;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+        }
+        .detail-item-value {
+          font-size: 13.5px;
+          color: #1a1a2e;
+          font-weight: 600;
+          word-break: break-word;
+        }
+        .detail-modal-footer {
+          padding: 14px 22px;
+          border-top: 1px solid #eef2f7;
+          display: flex;
+          justify-content: flex-end;
+        }
+        .detail-modal-footer button {
+          padding: 9px 22px;
+          background: #4A90D9;
+          color: #fff;
+          border: none;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+        .detail-modal-footer button:hover {
+          background: #357ABD;
+        }
+        @media (max-width: 600px) {
+          .detail-grid {
+            grid-template-columns: 1fr;
+          }
+        }
       `}</style>
 
       <MiniSidebar />
@@ -870,7 +1024,7 @@ const GerePaiement = () => {
                 type="button"
                 className="notif-close"
                 onClick={(e) => { e.stopPropagation(); setNotification(null); }}
-                aria-label={t('Fermer la notification', 'Hidio ny fampandrenesana', 'Close notification')}
+                aria-label={t('Fermer la notification', 'Hidio', 'Close')}
               >
                 <X size={16} />
               </button>
@@ -905,8 +1059,8 @@ const GerePaiement = () => {
                 onClick={() => navigate('/other-ajout')}
                 title={t(
                   'Ajouter un usager événementiel (CD, MP3, œuvres web...)',
-                  'Hanampy mpampiasa hetsika (CD, MP3, asa an-tserasera...)',
-                  'Add event user (CD, MP3, web works...)'
+                  'Hanampy mpampiasa hetsika',
+                  'Add event user'
                 )}
               >
                 <Package size={16} /> {t('Usager événementiel', 'Mpampiasa hetsika', 'Event user')}
@@ -975,8 +1129,8 @@ const GerePaiement = () => {
                 <input
                   type="text"
                   placeholder={selectedType === 'other'
-                    ? t('Rechercher un usager événementiel...', 'Hikaroka mpampiasa hetsika...', 'Search event user...')
-                    : t('Rechercher (nom, demandeur, téléphone...)', 'Hikaroka (anarana, mpangataka, finday...)', 'Search (name, applicant, phone...)')}
+                    ? t('Rechercher un usager événementiel...', 'Hikaroka...', 'Search...')
+                    : t('Rechercher (nom, demandeur, téléphone...)', 'Hikaroka...', 'Search...')}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -987,11 +1141,11 @@ const GerePaiement = () => {
                 <>
                   {showOnlyNouveaux ? (
                     <button type="button" className="btn-secondary" onClick={() => setShowOnlyNouveaux(false)}>
-                      <EyeOff size={16} /> {t('Tous les usagers', 'Ny mpampiasa rehetra', 'All users')}
+                      <EyeOff size={16} /> {t('Tous les usagers', 'Rehetra', 'All users')}
                     </button>
                   ) : (
                     <button type="button" className="btn-secondary" onClick={() => setShowOnlyNouveaux(true)}>
-                      <Eye size={16} /> {t('Nouveaux uniquement', 'Vaovao ihany', 'New only')}
+                      <Eye size={16} /> {t('Nouveaux uniquement', 'Vaovao', 'New only')}
                     </button>
                   )}
                 </>
@@ -1009,7 +1163,7 @@ const GerePaiement = () => {
                 <span>
                   <strong className="other-header-count">{otherUsagers.length}</strong>{' '}
                   {t('usager(s) événementiel(s)', 'mpampiasa hetsika', 'event user(s)')}
-                  {' '}— {t('CD, MP3, Œuvres Web, Hologrammes, Vidéos...', 'CD, MP3, Asa an-tserasera, Holograma, Lahatsary...', 'CD, MP3, Web works, Holograms, Videos...')}
+                  {' '}— {t('CD, MP3, Œuvres Web, Hologrammes, Vidéos...', 'CD, MP3...', 'CD, MP3...')}
                 </span>
               </div>
               <button
@@ -1043,8 +1197,8 @@ const GerePaiement = () => {
                 <FileText size={28} />
                 <p>
                   {showOnlyNouveaux
-                    ? t('Aucun nouvel usager en attente', 'Tsy misy mpampiasa vaovao miandry', 'No new user pending')
-                    : t('Aucun résultat trouvé', 'Tsy misy valiny hita', 'No result found')}
+                    ? t('Aucun nouvel usager en attente', 'Tsy misy vaovao', 'No new user pending')
+                    : t('Aucun résultat trouvé', 'Tsy misy valiny', 'No result found')}
                 </p>
                 <button type="button" className="btn-refresh" onClick={loadAllData}>
                   <RefreshCw size={16} /> {t('Rafraîchir', 'Havaozy', 'Refresh')}
@@ -1058,7 +1212,7 @@ const GerePaiement = () => {
                     <th>{t('Nom / Dénomination', 'Anarana', 'Name')}</th>
                     <th>{t('Demandeur', 'Mpangataka', 'Applicant')}</th>
                     <th>{t('Contact', 'Fifandraisana', 'Contact')}</th>
-                    <th>{t('Informations', 'Fampahalalana', 'Information')}</th>
+                    <th>{t('Détails', 'Antsipiriany', 'Details')}</th>
                     <th>{t('Pmt', 'Pmt', 'Pmt')} {filtreAnnee}</th>
                     <th>{t('Statut', 'Toe-javatra', 'Status')}</th>
                     <th>{t('Action', 'Hetsika', 'Action')}</th>
@@ -1068,7 +1222,6 @@ const GerePaiement = () => {
                   {filteredUsagers.map((u) => {
                     const isNew = nouveauxIds[selectedType]?.includes(u.id) || u.estNouveau;
                     const isLate = isEnRetard(u);
-                    const fullInfos = getFullInfo(u, selectedType);
 
                     const moisPayes = getMoisPayesComplet(u, filtreAnnee);
                     const moisTries = [...moisPayes].sort((a, b) => a - b);
@@ -1094,11 +1247,6 @@ const GerePaiement = () => {
                           {u.adresse || u.adresse_siege ? (
                             <div className="usager-sub">{u.adresse || u.adresse_siege}</div>
                           ) : null}
-                          {u.moisCreation && u.moisCreation > 1 && (
-                            <div className="usager-sub">
-                              <Calendar size={12} /> {t('Début', 'Fanombohana', 'Start')} : {moisLabelsShort[u.moisCreation - 1]} {u.anneeCreation}
-                            </div>
-                          )}
                         </td>
                         <td data-label="Demandeur">
                           <div className="demandeur-info">
@@ -1114,36 +1262,29 @@ const GerePaiement = () => {
                             {u.email && <div className="usager-sub"><Mail size={12} /> {u.email}</div>}
                           </div>
                         </td>
-                        <td data-label="Informations">
-                          <div className="usager-infos">
-                            {fullInfos.length > 0 ? fullInfos.map((info, i) => (
-                              <div key={i} className="usager-info-item">
-                                {info.icon ? <info.icon size={12} /> : null}
-                                <span>{info.text}</span>
-                              </div>
-                            )) : (
-                              <span className="usager-info-empty">
-                                {t('Aucune information', 'Tsy misy fampahalalana', 'No information')}
-                              </span>
-                            )}
-                          </div>
+
+                        {/* ✅ BOUTON ŒIL DÉTAILS */}
+                        <td data-label="Détails">
+                          <button
+                            type="button"
+                            className="btn-eye"
+                            onClick={() => setDetailUsager({ usager: u, type: selectedType })}
+                            title={t('Voir les détails', 'Jereo ny antsipiriany', 'View details')}
+                          >
+                            <Eye size={16} />
+                          </button>
                         </td>
+
                         <td data-label="Pmt">
                           <div className="pmt-info">
                             {nbMoisPayes >= 12 ? (
                               <>
                                 <span style={{ fontWeight: 'bold', color: '#198754' }}>12/12 ✅</span>
-                                <div className="pmt-detail" style={{ fontSize: '10px', color: '#198754', marginTop: '2px' }}>
-                                  {t('Tous les mois payés', 'Volana rehetra voaloa', 'All months paid')}
-                                </div>
                               </>
                             ) : nbMoisPayes > 0 ? (
                               <>
                                 <span style={{ fontWeight: '600' }}>{nbMoisPayes}/12</span>
                                 <span style={{ fontSize: '12px', color: '#0d6efd' }}> ({affichageMoisPayes})</span>
-                                <div className="pmt-detail" style={{ fontSize: '10px', color: '#6c757d', marginTop: '2px' }}>
-                                  {t('Payés', 'Voaloa', 'Paid')} : {affichageMoisPayes}
-                                </div>
                               </>
                             ) : (
                               <span style={{ color: '#dc3545' }}>0/12</span>
@@ -1174,6 +1315,144 @@ const GerePaiement = () => {
           </div>
         </div>
       </main>
+
+      {/* ✅ MODALE DÉTAIL USAGER */}
+      {detailUsager && (() => {
+        const { usager, type } = detailUsager;
+        const infos = getFullInfo(usager, type);
+        const TypeIcon = type === 'other'
+          ? (OTHER_TYPE_ICONS[usager.type_usager] || Package)
+          : (typeConfig[type]?.icon || Package);
+
+        const typeLabel = type === 'other'
+          ? (otherTypeLabels[usager.type_usager] || usager.type_usager)
+          : (typeConfig[type]?.label || type);
+
+        return (
+          <div
+            className="detail-modal-overlay"
+            onClick={() => setDetailUsager(null)}
+          >
+            <div className="detail-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="detail-modal-header">
+                <h3>
+                  <TypeIcon size={20} />
+                  {usager.denomination || usager.nom_evenement || t('Sans nom', 'Tsy misy anarana', 'No name')}
+                </h3>
+                <button
+                  type="button"
+                  className="detail-modal-close"
+                  onClick={() => setDetailUsager(null)}
+                  aria-label={t('Fermer', 'Hidio', 'Close')}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="detail-modal-body">
+                {/* Section : Identification */}
+                <div className="detail-section">
+                  <div className="detail-section-title">
+                    {t('Identification', 'Famantarana', 'Identification')}
+                  </div>
+                  <div className="detail-grid">
+                    <div className="detail-item">
+                      <div className="detail-item-icon"><Hash size={14} /></div>
+                      <div className="detail-item-content">
+                        <span className="detail-item-label">ID</span>
+                        <span className="detail-item-value">#{String(usager.id).padStart(3, '0')}</span>
+                      </div>
+                    </div>
+                    <div className="detail-item">
+                      <div className="detail-item-icon"><TypeIcon size={14} /></div>
+                      <div className="detail-item-content">
+                        <span className="detail-item-label">{t('Type', 'Karazana', 'Type')}</span>
+                        <span className="detail-item-value">{typeLabel}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section : Détails */}
+                {infos.length > 0 ? (
+                  <div className="detail-section">
+                    <div className="detail-section-title">
+                      {t('Informations détaillées', 'Fampahalalana amin\'ny antsipiriany', 'Detailed information')}
+                    </div>
+                    <div className="detail-grid">
+                      {infos.map((info, i) => {
+                        const Icon = info.icon || Info;
+                        return (
+                          <div key={i} className="detail-item">
+                            <div className="detail-item-icon"><Icon size={14} /></div>
+                            <div className="detail-item-content">
+                              <span className="detail-item-label">{info.label}</span>
+                              <span className="detail-item-value">{info.text}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="detail-section">
+                    <div className="detail-section-title">
+                      {t('Informations détaillées', 'Fampahalalana', 'Information')}
+                    </div>
+                    <p style={{ color: '#7f8c8d', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>
+                      {t('Aucune information supplémentaire', 'Tsy misy fampahalalana fanampiny', 'No additional information')}
+                    </p>
+                  </div>
+                )}
+
+                {/* Section : Paiements */}
+                <div className="detail-section">
+                  <div className="detail-section-title">
+                    {t('Paiements', 'Fandoavana', 'Payments')}
+                  </div>
+                  <div className="detail-grid">
+                    <div className="detail-item">
+                      <div className="detail-item-icon"><CalendarCheck size={14} /></div>
+                      <div className="detail-item-content">
+                        <span className="detail-item-label">{t('Mode', 'Fomba', 'Mode')}</span>
+                        <span className="detail-item-value">
+                          {usager.mode_paiement === 'mensuel'
+                            ? t('Mensuel', 'Isam-bolana', 'Monthly')
+                            : t('Unique', 'Indray mandeha', 'One-time')}
+                        </span>
+                      </div>
+                    </div>
+                    {usager.montant_mensuel > 0 && (
+                      <div className="detail-item">
+                        <div className="detail-item-icon"><DollarSign size={14} /></div>
+                        <div className="detail-item-content">
+                          <span className="detail-item-label">{t('Montant mensuel', 'Vola isam-bolana', 'Monthly amount')}</span>
+                          <span className="detail-item-value">{usager.montant_mensuel.toLocaleString(locale)} Ar</span>
+                        </div>
+                      </div>
+                    )}
+                    {usager.frais_dossier > 0 && (
+                      <div className="detail-item">
+                        <div className="detail-item-icon"><FileText size={14} /></div>
+                        <div className="detail-item-content">
+                          <span className="detail-item-label">{t('Frais dossier', 'Saram-pandraharahana', 'File fees')}</span>
+                          <span className="detail-item-value">{usager.frais_dossier.toLocaleString(locale)} Ar</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="detail-modal-footer">
+                <button type="button" onClick={() => setDetailUsager(null)}>
+                  {t('Fermer', 'Hidio', 'Close')}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 };

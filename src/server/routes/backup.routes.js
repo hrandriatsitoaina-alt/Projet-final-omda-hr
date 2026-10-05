@@ -1,4 +1,18 @@
 // server/routes/backup.routes.js
+// ═══════════════════════════════════════════════════════════════════
+// BACKUP ROUTES — Sauvegarde / Restauration PostgreSQL
+//   • Sauvegarde auto : Lundi, Mercredi, Vendredi à 9h
+//   • RATTRAPAGE automatique : toutes les 15 min + au démarrage
+//   • Restauration avec DROP/CREATE schéma propre
+//
+//   ✅ CORRECTIONS (version fiable) :
+//   1. getDossierBackup() est maintenant DANS le try → toute erreur est journalisée
+//   2. Verrou anti-doublon (cron 9h + rattrapage 9h00 ne se lancent plus en même temps)
+//   3. created_at est écrit explicitement par Node → plus de décalage de fuseau horaire
+//   4. Dump écrit dans un fichier .tmp puis renommé → un échec n'écrase jamais une bonne sauvegarde
+//   5. Erreurs d'INSERT dans l'historique affichées en détail dans la console
+//   6. Après un échec, nouvelle tentative seulement après 30 min (pas de spam dans l'historique)
+// ═══════════════════════════════════════════════════════════════════
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -6,139 +20,137 @@ const path = require('path');
 const { exec } = require('child_process');
 const multer = require('multer');
 const cron = require('node-cron');
-const pool = require('../database');
+const db = require('../database');
+const pool = db.pool;
+const query = db.query;
 
 // ============================================================
 // CONFIGURATION POSTGRES
 // ============================================================
 const DB_CONFIG = {
-  user: 'omda_user',
-  password: 'Omda2026',
-  host: 'localhost',
-  port: 5432,
-  database: 'omda_db'
+  user: process.env.DB_USER || 'omda_user',
+  password: process.env.DB_PASSWORD || 'Omda2026',
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '5432', 10),
+  database: process.env.DB_NAME || 'omda_db',
+  schema: 'omda_app',
 };
 
 // ============================================================
-// DOSSIER DE SAUVEGARDE UNIQUE SUR DISQUE C:
+// JOURS DE SAUVEGARDE AUTOMATIQUE
+// ============================================================
+const JOURS_SAUVEGARDE_AUTO = [1, 3, 5]; // Lundi, Mercredi, Vendredi
+const HEURE_SAUVEGARDE_AUTO = 9;
+const DELAI_RETENTE_APRES_ECHEC_MIN = 30; // minutes
+
+// ============================================================
+// VERROU : empêche deux sauvegardes auto en même temps
+// ============================================================
+let sauvegardeEnCours = false;
+
+// ============================================================
+// DOSSIER DE SAUVEGARDE
 // ============================================================
 function getDossierBackup() {
   const annee = new Date().getFullYear();
-  let dossierBase;
-  
-  if (process.platform === 'win32') {
-    dossierBase = 'C:\\backupOmda';
-  } else {
-    dossierBase = '/backupOmda';
-  }
-  
+  const dossierBase = process.platform === 'win32' ? 'C:\\backupOmda' : '/backupOmda';
   const dossierAnnee = path.join(dossierBase, annee.toString());
-  
-  if (!fs.existsSync(dossierBase)) {
-    fs.mkdirSync(dossierBase, { recursive: true });
-    console.log('📁 Dossier créé:', dossierBase);
-  }
-  if (!fs.existsSync(dossierAnnee)) {
-    fs.mkdirSync(dossierAnnee, { recursive: true });
-    console.log('📁 Dossier créé:', dossierAnnee);
-  }
-  
+  if (!fs.existsSync(dossierBase)) fs.mkdirSync(dossierBase, { recursive: true });
+  if (!fs.existsSync(dossierAnnee)) fs.mkdirSync(dossierAnnee, { recursive: true });
   return dossierAnnee;
 }
 
-// ============================================================
-// NOMS DES FICHIERS
-// ============================================================
 const NOM_FICHIER_AUTO = 'omda_backup_auto.sql';
 const NOM_FICHIER_MANUEL = 'omda_backup_manuel.sql';
 
-// Dossier temporaire pour les uploads
-const upload = multer({ dest: path.join(__dirname, '..', 'tmp_uploads') });
-if (!fs.existsSync(path.join(__dirname, '..', 'tmp_uploads'))) {
-  fs.mkdirSync(path.join(__dirname, '..', 'tmp_uploads'), { recursive: true });
-}
+// ============================================================
+// UPLOAD
+// ============================================================
+const uploadDir = path.join(__dirname, '..', 'tmp_uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+const upload = multer({ dest: uploadDir });
 
 // ============================================================
 // TROUVER POSTGRESQL
 // ============================================================
 function findPostgresBinaries() {
   const possiblePaths = [
+    'C:\\Program Files\\PostgreSQL\\18\\bin',
+    'C:\\Program Files\\PostgreSQL\\17\\bin',
     'C:\\Program Files\\PostgreSQL\\16\\bin',
     'C:\\Program Files\\PostgreSQL\\15\\bin',
     'C:\\Program Files\\PostgreSQL\\14\\bin',
     'C:\\Program Files\\PostgreSQL\\13\\bin',
     'C:\\Program Files (x86)\\PostgreSQL\\16\\bin',
-    'C:\\Program Files (x86)\\PostgreSQL\\15\\bin',
-    'C:\\Program Files (x86)\\PostgreSQL\\14\\bin',
-    'C:\\Program Files\\PostgreSQL\\17\\bin',
+    '/usr/lib/postgresql/17/bin',
+    '/usr/lib/postgresql/16/bin',
+    '/usr/lib/postgresql/15/bin',
+    '/usr/lib/postgresql/14/bin',
     '/usr/bin',
     '/usr/local/bin',
-    '/usr/pgsql/bin',
-    '/opt/PostgreSQL/16/bin',
-    '/opt/PostgreSQL/15/bin',
-    '/opt/PostgreSQL/14/bin'
   ];
 
   for (const basePath of possiblePaths) {
     try {
       const pgDumpPath = path.join(basePath, process.platform === 'win32' ? 'pg_dump.exe' : 'pg_dump');
       const psqlPath = path.join(basePath, process.platform === 'win32' ? 'psql.exe' : 'psql');
-      
       if (fs.existsSync(pgDumpPath) && fs.existsSync(psqlPath)) {
         return { pgDump: pgDumpPath, psql: psqlPath, found: true };
       }
-    } catch (e) {}
+    } catch (e) { /* ignore */ }
   }
 
   if (process.platform === 'win32') {
     try {
       const { execSync } = require('child_process');
-      const pgDumpPath = execSync('where pg_dump', { encoding: 'utf8' }).trim().split('\n')[0];
-      const psqlPath = execSync('where psql', { encoding: 'utf8' }).trim().split('\n')[0];
-      if (pgDumpPath && psqlPath) {
-        return { pgDump: pgDumpPath, psql: psqlPath, found: true };
-      }
-    } catch (e) {}
+      const pgDumpPath = execSync('where pg_dump', { encoding: 'utf8' }).trim().split('\n')[0].trim();
+      const psqlPath = execSync('where psql', { encoding: 'utf8' }).trim().split('\n')[0].trim();
+      if (pgDumpPath && psqlPath) return { pgDump: pgDumpPath, psql: psqlPath, found: true };
+    } catch (e) { /* ignore */ }
   }
 
-  return {
-    pgDump: process.platform === 'win32' ? 'pg_dump' : 'pg_dump',
-    psql: process.platform === 'win32' ? 'psql' : 'psql',
-    found: false
-  };
+  return { pgDump: 'pg_dump', psql: 'psql', found: false };
 }
 
 const PG_BIN = findPostgresBinaries();
 console.log('🔍 PostgreSQL:', PG_BIN.found ? '✅ Trouvé' : '❌ Non trouvé');
-console.log('📁 Dossier backup:', getDossierBackup());
+try {
+  console.log('📁 Dossier backup:', getDossierBackup());
+} catch (e) {
+  console.error('❌ Impossible de créer le dossier de backup:', e.message);
+}
 
 // ============================================================
 // UTILITAIRES
 // ============================================================
 function tailleFichier(cheminFichier) {
-  try {
-    return fs.statSync(cheminFichier).size;
-  } catch {
-    return 0;
-  }
+  try { return fs.statSync(cheminFichier).size; }
+  catch { return 0; }
 }
 
+function getJoursSauvegardeLabels() {
+  const noms = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+  return JOURS_SAUVEGARDE_AUTO.map(j => noms[j]).join(', ');
+}
+
+// ============================================================
+// DUMP
+// ============================================================
 function executerDump(cheminSortie) {
   return new Promise((resolve, reject) => {
     const dossier = path.dirname(cheminSortie);
-    if (!fs.existsSync(dossier)) {
-      fs.mkdirSync(dossier, { recursive: true });
-    }
-    
-    const pgDumpCmd = PG_BIN.pgDump;
-    const commande = `"${pgDumpCmd}" -h ${DB_CONFIG.host} -p ${DB_CONFIG.port} -U ${DB_CONFIG.user} -d ${DB_CONFIG.database} -F p -f "${cheminSortie}"`;
-    
+    if (!fs.existsSync(dossier)) fs.mkdirSync(dossier, { recursive: true });
+
+    const commande = `"${PG_BIN.pgDump}" -h ${DB_CONFIG.host} -p ${DB_CONFIG.port} -U ${DB_CONFIG.user} -d ${DB_CONFIG.database} --schema=${DB_CONFIG.schema} --clean --if-exists --no-owner --no-acl -F p -f "${cheminSortie}"`;
+
     console.log('🔧 pg_dump en cours...');
-    
-    exec(commande, { 
+    console.log('   Commande:', commande);
+
+    exec(commande, {
       env: { ...process.env, PGPASSWORD: DB_CONFIG.password },
       shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/bash',
-      timeout: 300000
+      timeout: 300000,
+      maxBuffer: 50 * 1024 * 1024,
     }, (error, stdout, stderr) => {
       if (error) {
         console.error('❌ Erreur pg_dump:', error.message);
@@ -150,17 +162,54 @@ function executerDump(cheminSortie) {
   });
 }
 
-function executerRestore(cheminFichier) {
+// ============================================================
+// DROP + CREATE du schéma
+// ============================================================
+function reinitialiserSchema() {
   return new Promise((resolve, reject) => {
-    const psqlCmd = PG_BIN.psql;
-    const commande = `"${psqlCmd}" -h ${DB_CONFIG.host} -p ${DB_CONFIG.port} -U ${DB_CONFIG.user} -d ${DB_CONFIG.database} -f "${cheminFichier}"`;
-    
-    console.log('🔧 Restauration en cours...');
-    
-    exec(commande, { 
+    const sqlCommands = `DROP SCHEMA IF EXISTS ${DB_CONFIG.schema} CASCADE; CREATE SCHEMA ${DB_CONFIG.schema};`;
+
+    const tmpFile = path.join(uploadDir, `_reset_schema_${Date.now()}.sql`);
+    fs.writeFileSync(tmpFile, sqlCommands, 'utf8');
+
+    const commande = `"${PG_BIN.psql}" -h ${DB_CONFIG.host} -p ${DB_CONFIG.port} -U ${DB_CONFIG.user} -d ${DB_CONFIG.database} -v ON_ERROR_STOP=1 -f "${tmpFile}"`;
+
+    console.log('🗑️  Réinitialisation du schéma...');
+
+    exec(commande, {
       env: { ...process.env, PGPASSWORD: DB_CONFIG.password },
       shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/bash',
-      timeout: 600000
+      timeout: 120000,
+      maxBuffer: 20 * 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      try {
+        if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+      } catch (e) { /* ignore */ }
+
+      if (error) {
+        console.error('❌ Erreur reset schéma:', error.message);
+        return reject(new Error(stderr || error.message));
+      }
+      console.log('✅ Schéma réinitialisé');
+      resolve();
+    });
+  });
+}
+
+// ============================================================
+// RESTORE
+// ============================================================
+function executerRestore(cheminFichier) {
+  return new Promise((resolve, reject) => {
+    const commande = `"${PG_BIN.psql}" -h ${DB_CONFIG.host} -p ${DB_CONFIG.port} -U ${DB_CONFIG.user} -d ${DB_CONFIG.database} --single-transaction --set ON_ERROR_STOP=on -f "${cheminFichier}"`;
+
+    console.log('🔧 Restauration en cours...');
+
+    exec(commande, {
+      env: { ...process.env, PGPASSWORD: DB_CONFIG.password },
+      shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/bash',
+      timeout: 600000,
+      maxBuffer: 100 * 1024 * 1024,
     }, (error, stdout, stderr) => {
       if (error) {
         console.error('❌ Erreur psql:', error.message);
@@ -172,329 +221,372 @@ function executerRestore(cheminFichier) {
   });
 }
 
+// ============================================================
+// Nettoyer le fichier SQL
+// ============================================================
+function nettoyerFichierSQL(cheminSource) {
+  const contenu = fs.readFileSync(cheminSource, 'utf8');
+  const lignes = contenu.split('\n');
+  const lignesFiltrees = [];
+
+  const motifsAIgnorer = [
+    /^CREATE SCHEMA public/i,
+    /^ALTER SCHEMA public/i,
+    /^DROP SCHEMA public/i,
+    /^COMMENT ON SCHEMA public/i,
+    /^ALTER SCHEMA .* OWNER TO/i,
+    /^REVOKE .* ON SCHEMA public/i,
+    /^GRANT .* ON SCHEMA public/i,
+    /^ALTER DEFAULT PRIVILEGES/i,
+    /^DROP SCHEMA IF EXISTS omda_app/i,
+    /^DROP SCHEMA omda_app/i,
+    /^CREATE SCHEMA omda_app/i,
+    /^CREATE SCHEMA IF NOT EXISTS omda_app/i,
+    /^COMMENT ON SCHEMA omda_app/i,
+  ];
+
+  for (const ligne of lignes) {
+    const trimmed = ligne.trim();
+    if (motifsAIgnorer.some(r => r.test(trimmed))) {
+      console.log(`   ⏭️ Ligne ignorée : ${trimmed.slice(0, 80)}`);
+      continue;
+    }
+    lignesFiltrees.push(ligne);
+  }
+
+  const cheminNettoye = cheminSource + '.clean';
+  fs.writeFileSync(cheminNettoye, lignesFiltrees.join('\n'), 'utf8');
+  console.log(`✅ Fichier nettoyé : ${cheminNettoye}`);
+
+  return cheminNettoye;
+}
+
+// ============================================================
+// JOURNALISATION
+//   ✅ created_at écrit explicitement par Node (même fuseau que les comparaisons)
+//   ✅ erreur détaillée si l'INSERT échoue (contrainte, colonne, etc.)
+// ============================================================
 async function journaliser({ type, nomFichier, cheminComplet, statut, message, userId }) {
   try {
     const taille = cheminComplet ? tailleFichier(cheminComplet) : 0;
-    
-    await pool.query(
-      `INSERT INTO omda_app.backup_historique
-       (type_backup, nom_fichier, chemin_complet, taille_octets, statut, message, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [type, nomFichier, cheminComplet, taille, statut, message || null, userId || null]
+    await query(
+      `INSERT INTO backup_historique
+       (type_backup, nom_fichier, chemin_complet, taille_octets, statut, message, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [type, nomFichier, cheminComplet, taille, statut, message || null, userId || null, new Date()]
     );
-    console.log(`📝 Journalisation: ${type} - ${statut} - ${nomFichier} (${(taille/1024).toFixed(1)} Ko)`);
+    console.log(`📝 Journalisé: ${type} - ${statut}`);
   } catch (error) {
-    console.error('❌ Erreur journalisation:', error);
+    console.error('❌ ERREUR JOURNALISATION (rien écrit dans backup_historique) :');
+    console.error('   Message    :', error.message);
+    if (error.detail) console.error('   Détail     :', error.detail);
+    if (error.constraint) console.error('   Contrainte :', error.constraint);
+    if (error.column) console.error('   Colonne    :', error.column);
   }
 }
 
 // ============================================================
-// VÉRIFIER SI UNE SAUVEGARDE A DÉJÀ ÉTÉ FAITE AUJOURD'HUI
+// VÉRIFICATIONS
 // ============================================================
-async function sauvegardeDejaFaiteAujourdhui(type) {
+
+/**
+ * Vérifie si une sauvegarde a déjà été faite AUJOURD'HUI.
+ */
+async function sauvegardeDejaFaiteAujourdhui(type = 'auto') {
   try {
-    const aujourdhui = new Date();
-    const debutJournee = new Date(aujourdhui);
+    const debutJournee = new Date();
     debutJournee.setHours(0, 0, 0, 0);
-    
-    const result = await pool.query(
-      `SELECT COUNT(*) as count 
-       FROM omda_app.backup_historique 
-       WHERE type_backup = $1 
-       AND statut = 'succes' 
-       AND created_at >= $2`,
+    const result = await query(
+      `SELECT COUNT(*) as count FROM backup_historique 
+       WHERE type_backup = $1 AND statut = 'succes' AND created_at >= $2`,
       [type, debutJournee]
     );
-    
-    const count = parseInt(result.rows[0].count);
-    console.log(`🔍 Vérification sauvegarde ${type} aujourd'hui: ${count > 0 ? '✅ OUI' : '❌ NON'}`);
-    return count > 0;
+    return parseInt(result.rows[0].count, 10) > 0;
   } catch (error) {
-    console.error('❌ Erreur vérification sauvegarde déjà faite:', error);
+    console.error('❌ Erreur check aujourd\'hui:', error.message);
     return false;
   }
 }
 
-// ============================================================
-// ⭐ VÉRIFIER LA DERNIÈRE SAUVEGARDE AUTO RÉUSSIE
-// ============================================================
+/**
+ * Dernière sauvegarde automatique réussie.
+ */
 async function getDerniereSauvegardeAuto() {
   try {
-    const result = await pool.query(
-      `SELECT * FROM omda_app.backup_historique 
+    const result = await query(
+      `SELECT * FROM backup_historique 
        WHERE type_backup = 'auto' AND statut = 'succes' 
        ORDER BY created_at DESC LIMIT 1`
     );
     return result.rows[0] || null;
   } catch (error) {
-    console.error('❌ Erreur dernière sauvegarde:', error);
+    console.error('❌ Erreur lecture dernière sauvegarde auto:', error.message);
     return null;
   }
 }
 
-// ============================================================
-// ⭐ VÉRIFIER SI LA SAUVEGARDE AUTO DU VENDREDI A ÉTÉ FAITE
-// ============================================================
-async function sauvegardeVendrediFaite() {
+/**
+ * Y a-t-il eu un ÉCHEC auto récent ? (évite de réessayer toutes les 15 min en boucle)
+ */
+async function echecAutoRecent() {
   try {
-    // Récupérer la dernière sauvegarde auto réussie
-    const derniere = await getDerniereSauvegardeAuto();
-    
-    if (!derniere) {
-      console.log('📊 Aucune sauvegarde auto trouvée');
-      return false;
-    }
-    
-    const dateSauvegarde = new Date(derniere.created_at);
-    const jourSemaine = dateSauvegarde.getDay(); // 5 = vendredi
-    
-    // Vérifier si la dernière sauvegarde a été faite un vendredi
-    const estVendredi = jourSemaine === 5;
-    
-    console.log(`📊 Dernière sauvegarde auto: ${dateSauvegarde.toLocaleDateString('fr-FR')} - ${estVendredi ? '✅ VENDREDI' : '❌ Pas vendredi'}`);
-    
-    return estVendredi;
+    const limite = new Date(Date.now() - DELAI_RETENTE_APRES_ECHEC_MIN * 60 * 1000);
+    const result = await query(
+      `SELECT COUNT(*) as count FROM backup_historique
+       WHERE type_backup = 'auto' AND statut = 'echec' AND created_at >= $1`,
+      [limite]
+    );
+    return parseInt(result.rows[0].count, 10) > 0;
   } catch (error) {
-    console.error('❌ Erreur vérification sauvegarde vendredi:', error);
     return false;
   }
 }
 
-// ============================================================
-// ⭐ VÉRIFIER SI LA SAUVEGARDE AUTO DOIT ÊTRE FAITE
-// ============================================================
-async function doitFaireSauvegardeAuto() {
-  const now = new Date();
-  const jourSemaine = now.getDay(); // 0=Dimanche, 1=Lundi, ..., 5=Vendredi, 6=Samedi
-  const heure = now.getHours();
-  
-  // Jours de la semaine
-  const estVendredi = jourSemaine === 5;
-  const estWeekend = jourSemaine === 0 || jourSemaine === 6; // Dimanche ou Samedi
-  const estLundi = jourSemaine === 1;
-  const estMardi = jourSemaine === 2;
-  const estMercredi = jourSemaine === 3;
-  const estJeudi = jourSemaine === 4;
-  
-  // Si c'est le weekend (Samedi ou Dimanche) -> PAS de sauvegarde
-  if (estWeekend) {
-    console.log(`📅 Weekend (${['Dimanche','Samedi'][jourSemaine === 0 ? 0 : 1]}) - Pas de sauvegarde`);
-    return false;
-  }
-  
-  // Cas 1: C'est VENDREDI et il est après 9h
-  if (estVendredi && heure >= 9) {
-    // Vérifier si une sauvegarde auto a déjà été faite aujourd'hui
-    const dejaFaite = await sauvegardeDejaFaiteAujourdhui('auto');
-    if (!dejaFaite) {
-      console.log('✅ VENDREDI après 9h - Sauvegarde nécessaire');
-      return true;
-    } else {
-      console.log('✅ VENDREDI après 9h - Déjà sauvegardé aujourd\'hui');
-      return false;
+/**
+ * Calcule la date du DERNIER jour planifié (Lun/Mer/Ven à 9h) qui est <= maintenant.
+ */
+function getDernierJourPlanifie() {
+  const maintenant = new Date();
+
+  for (let i = 0; i < 7; i++) {
+    const jourTest = new Date(maintenant);
+    jourTest.setDate(maintenant.getDate() - i);
+    jourTest.setHours(HEURE_SAUVEGARDE_AUTO, 0, 0, 0);
+
+    if (jourTest.getTime() > maintenant.getTime()) continue;
+
+    if (JOURS_SAUVEGARDE_AUTO.includes(jourTest.getDay())) {
+      return jourTest;
     }
   }
-  
-  // Cas 2: C'est LUNDI, MARDI, MERCREDI ou JEUDI
-  if (estLundi || estMardi || estMercredi || estJeudi) {
-    // Vérifier si la sauvegarde du vendredi a été faite
-    const vendrediFait = await sauvegardeVendrediFaite();
-    
-    if (!vendrediFait) {
-      console.log(`✅ ${['Lundi','Mardi','Mercredi','Jeudi'][jourSemaine-1]} - Sauvegarde du vendredi NON faite - Rattrapage nécessaire`);
-      return true;
-    } else {
-      console.log(`📅 ${['Lundi','Mardi','Mercredi','Jeudi'][jourSemaine-1]} - Sauvegarde du vendredi déjà faite - Pas de sauvegarde`);
-      return false;
-    }
-  }
-  
-  // Cas 3: C'est VENDREDI avant 9h
-  if (estVendredi && heure < 9) {
-    console.log(`⏳ VENDREDI avant 9h (${heure}h) - Attente de 9h`);
+
+  return null;
+}
+
+/**
+ * DÉTERMINE SI ON DOIT LANCER LA SAUVEGARDE MAINTENANT
+ *   1. Dernier jour planifié (Lun/Mer/Ven 9h <= maintenant)
+ *   2. Aucune sauvegarde auto réussie → LANCER
+ *   3. Dernière sauvegarde antérieure au dernier jour planifié → LANCER (rattrapage)
+ *   4. Sinon → NE PAS LANCER
+ */
+async function doitFaireSauvegardeAuto(verbose = true) {
+  const maintenant = new Date();
+  const joursNoms = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+  const log = (...a) => { if (verbose) console.log(...a); };
+
+  log(`\n🔍 ═══ ANALYSE DE LA SAUVEGARDE AUTO ═══`);
+  log(`   📅 Maintenant : ${maintenant.toLocaleString('fr-FR')} (${joursNoms[maintenant.getDay()]})`);
+
+  const dernierJourPlanifie = getDernierJourPlanifie();
+
+  if (!dernierJourPlanifie) {
+    log(`   ℹ️ Aucun jour planifié dans les 7 derniers jours → SKIP`);
     return false;
   }
-  
-  console.log(`📅 Aucune condition de sauvegarde remplie`);
+
+  log(`   📅 Dernier jour planifié (${HEURE_SAUVEGARDE_AUTO}h) : ${dernierJourPlanifie.toLocaleString('fr-FR')}`);
+
+  const derniere = await getDerniereSauvegardeAuto();
+
+  if (!derniere) {
+    log(`   ✅ Aucune sauvegarde auto réussie → LANCER`);
+    return true;
+  }
+
+  const dateDerniere = new Date(derniere.created_at);
+  log(`   📅 Dernière sauvegarde : ${dateDerniere.toLocaleString('fr-FR')}`);
+  log(`   📊 Fichier : ${derniere.nom_fichier} (${(derniere.taille_octets / 1024).toFixed(1)} Ko)`);
+
+  if (dateDerniere.getTime() < dernierJourPlanifie.getTime()) {
+    log(`   ✅ → RATTRAPAGE NÉCESSAIRE`);
+    return true;
+  }
+
+  log(`   ℹ️ Sauvegarde déjà à jour → SKIP`);
   return false;
 }
 
-// ============================================================
-// LANCER SAUVEGARDE AUTOMATIQUE
-// ============================================================
+/**
+ * Lance la sauvegarde automatique.
+ *   ✅ Verrou anti-doublon
+ *   ✅ Tout est dans le try → toute erreur est journalisée dans l'historique
+ *   ✅ Écriture dans un .tmp puis renommage
+ */
 async function lancerSauvegardeAutomatique(force = false) {
+  if (sauvegardeEnCours) {
+    return { success: false, message: 'Une sauvegarde automatique est déjà en cours' };
+  }
+
   if (!force) {
     const dejaFaite = await sauvegardeDejaFaiteAujourdhui('auto');
     if (dejaFaite) {
-      console.log(`ℹ️ Sauvegarde auto déjà effectuée aujourd'hui - Sauvegarde annulée`);
       return { success: false, message: 'Sauvegarde déjà effectuée aujourd\'hui' };
     }
   }
-  
-  const dossier = getDossierBackup();
-  const cheminSortie = path.join(dossier, NOM_FICHIER_AUTO);
-  
+
+  sauvegardeEnCours = true;
+  let cheminTmp = null;
+
   try {
-    console.log('📁 Sauvegarde auto dans:', dossier);
-    console.log('📄 Fichier:', NOM_FICHIER_AUTO);
-    
-    await executerDump(cheminSortie);
-    const taille = tailleFichier(cheminSortie);
-    
-    if (taille === 0) {
-      throw new Error('Le fichier de sauvegarde est vide (0 octet)');
+    if (!PG_BIN.found) {
+      throw new Error('PostgreSQL (pg_dump/psql) introuvable sur ce serveur');
     }
-    
+
+    const dossier = getDossierBackup(); // ✅ maintenant dans le try
+    const cheminSortie = path.join(dossier, NOM_FICHIER_AUTO);
+    cheminTmp = cheminSortie + '.tmp';
+
+    if (fs.existsSync(cheminTmp)) fs.unlinkSync(cheminTmp);
+
+    await executerDump(cheminTmp);
+
+    const taille = tailleFichier(cheminTmp);
+    if (taille === 0) throw new Error('Fichier de sauvegarde vide');
+
+    // Remplace l'ancienne sauvegarde seulement si la nouvelle est bonne
+    if (fs.existsSync(cheminSortie)) fs.unlinkSync(cheminSortie);
+    fs.renameSync(cheminTmp, cheminSortie);
+    cheminTmp = null;
+
     await journaliser({
       type: 'auto',
       nomFichier: NOM_FICHIER_AUTO,
       cheminComplet: cheminSortie,
       statut: 'succes'
     });
-    
-    console.log(`✅ Sauvegarde auto - ${(taille / 1024).toFixed(1)} Ko`);
+
     return { success: true, message: `✅ Sauvegarde auto effectuée (${(taille / 1024).toFixed(1)} Ko)` };
   } catch (error) {
-    console.error('❌ Erreur auto:', error.message);
+    console.error('❌ Échec sauvegarde auto:', error.message);
     await journaliser({
       type: 'auto',
       nomFichier: NOM_FICHIER_AUTO,
       cheminComplet: '',
       statut: 'echec',
       message: error.message
-    }).catch(() => {});
+    });
     throw error;
+  } finally {
+    try {
+      if (cheminTmp && fs.existsSync(cheminTmp)) fs.unlinkSync(cheminTmp);
+    } catch (e) { /* ignore */ }
+    sauvegardeEnCours = false;
   }
 }
 
-// ============================================================
-// ⭐ VÉRIFIER ET LANCER LA SAUVEGARDE (AMÉLIORÉE)
-// ============================================================
+/**
+ * Vérifie + lance si nécessaire.
+ */
 async function verifierEtLancerSauvegarde() {
-  const now = new Date();
-  const jourSemaine = now.getDay();
-  const heure = now.getHours();
-  const minute = now.getMinutes();
-  
-  const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-  console.log(`🔍 Vérification: ${now.toLocaleString('fr-FR')} - Jour: ${jours[jourSemaine]}, Heure: ${heure}:${String(minute).padStart(2, '0')}`);
-  
   try {
-    const doitFaire = await doitFaireSauvegardeAuto();
-    
-    if (doitFaire) {
-      console.log(`⏰ [${now.toLocaleString('fr-FR')}] Lancement de la sauvegarde auto...`);
-      const result = await lancerSauvegardeAutomatique(true);
-      console.log(`✅ Résultat: ${result.message}`);
-      return result;
-    } else {
-      console.log(`ℹ️ Aucune sauvegarde nécessaire à ce moment`);
-      return { success: false, message: 'Aucune sauvegarde nécessaire' };
+    if (sauvegardeEnCours) {
+      return { success: false, message: 'Une sauvegarde est déjà en cours' };
     }
+
+    const doitFaire = await doitFaireSauvegardeAuto();
+    if (!doitFaire) {
+      return { success: false, message: 'Aucune sauvegarde nécessaire pour le moment' };
+    }
+
+    if (await echecAutoRecent()) {
+      return {
+        success: false,
+        message: `Un échec est survenu il y a moins de ${DELAI_RETENTE_APRES_ECHEC_MIN} min — nouvelle tentative plus tard`
+      };
+    }
+
+    console.log('\n🚀 Lancement de la sauvegarde...');
+    const result = await lancerSauvegardeAutomatique(true);
+    console.log(`✅ Résultat : ${result.message}`);
+    return result;
   } catch (error) {
-    console.error('❌ Erreur lors de la sauvegarde auto:', error);
+    console.error('❌ Erreur vérification/lancement:', error.message);
     return { success: false, message: error.message };
   }
 }
 
 // ============================================================
-// GET /api/backup/config
+// ROUTES
 // ============================================================
+
 router.get('/backup/config', async (req, res) => {
   try {
     const dossier = getDossierBackup();
     res.json({
       success: true,
       chemin: dossier,
-      cheminEffectif: dossier,
       configure: true,
-      dossierExiste: fs.existsSync(dossier)
+      dossierExiste: fs.existsSync(dossier),
+      joursSauvegarde: JOURS_SAUVEGARDE_AUTO,
+      joursSauvegardeLabels: getJoursSauvegardeLabels(),
+      heureSauvegarde: HEURE_SAUVEGARDE_AUTO,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ============================================================
-// POST /api/backup/config
-// ============================================================
-router.post('/backup/config', async (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Dossier de sauvegarde automatique sur C:\\backupOmda\\année' 
-  });
-});
-
-// ============================================================
-// GET /api/backup/check-pg
-// ============================================================
 router.get('/backup/check-pg', (req, res) => {
   res.json({
     success: true,
     pgFound: PG_BIN.found,
     pgDump: PG_BIN.pgDump,
     psql: PG_BIN.psql,
-    message: PG_BIN.found ? 'PostgreSQL trouvé' : 'PostgreSQL non trouvé'
   });
 });
 
-// ============================================================
-// GET /api/backup/dossier-info
-// ============================================================
 router.get('/backup/dossier-info', (req, res) => {
-  const dossier = getDossierBackup();
-  const existe = fs.existsSync(dossier);
-  let fichiers = [];
-  let tailleTotale = 0;
-  
-  if (existe) {
-    try {
-      fichiers = fs.readdirSync(dossier).filter(f => f.endsWith('.sql'));
-      fichiers.forEach(f => {
-        const stat = fs.statSync(path.join(dossier, f));
-        tailleTotale += stat.size;
-      });
-    } catch (e) {}
+  try {
+    const dossier = getDossierBackup();
+    const existe = fs.existsSync(dossier);
+    let fichiers = [];
+    let tailleTotale = 0;
+
+    if (existe) {
+      try {
+        fichiers = fs.readdirSync(dossier).filter(f => f.endsWith('.sql'));
+        fichiers.forEach(f => {
+          const stat = fs.statSync(path.join(dossier, f));
+          tailleTotale += stat.size;
+        });
+      } catch (e) { /* ignore */ }
+    }
+
+    res.json({
+      success: true,
+      dossier,
+      existe,
+      fichiers,
+      nombreFichiers: fichiers.length,
+      tailleTotale: tailleTotale > 0 ? (tailleTotale / 1024 / 1024).toFixed(2) + ' MB' : '0 MB'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
-  
-  res.json({
-    success: true,
-    dossier,
-    existe,
-    fichiers,
-    nombreFichiers: fichiers.length,
-    tailleTotale: tailleTotale > 0 ? (tailleTotale / 1024 / 1024).toFixed(2) + ' MB' : '0 MB'
-  });
 });
 
-// ============================================================
-// POST /api/backup/manuel
-// ============================================================
 router.post('/backup/manuel', async (req, res) => {
   const { userId } = req.body;
-  
+
   if (!PG_BIN.found) {
-    return res.status(500).json({ 
-      success: false, 
-      message: 'PostgreSQL (pg_dump) non trouvé.' 
+    return res.status(500).json({
+      success: false,
+      message: 'PostgreSQL (pg_dump) non trouvé. Vérifiez l\'installation.'
     });
   }
-  
+
   try {
     const dossier = getDossierBackup();
     const cheminSortie = path.join(dossier, NOM_FICHIER_MANUEL);
-    
+
     console.log('📁 Sauvegarde manuelle dans:', dossier);
-    console.log('📄 Fichier:', NOM_FICHIER_MANUEL);
 
     await executerDump(cheminSortie);
-    
     const taille = tailleFichier(cheminSortie);
-    
-    if (taille === 0) {
-      throw new Error('Le fichier de sauvegarde est vide (0 octet)');
-    }
-    
+
+    if (taille === 0) throw new Error('Fichier de sauvegarde vide');
+
     await journaliser({
       type: 'manuel',
       nomFichier: NOM_FICHIER_MANUEL,
@@ -503,15 +595,12 @@ router.post('/backup/manuel', async (req, res) => {
       userId
     });
 
-    console.log(`✅ Sauvegarde manuelle - ${(taille / 1024).toFixed(1)} Ko`);
-
     res.json({
       success: true,
       message: `✅ Sauvegarde manuelle effectuée (${(taille / 1024).toFixed(1)} Ko)`,
       chemin: cheminSortie,
       dossier: dossier,
       taille: taille,
-      date: new Date().toISOString()
     });
   } catch (error) {
     console.error('❌ Erreur sauvegarde manuelle:', error);
@@ -522,80 +611,53 @@ router.post('/backup/manuel', async (req, res) => {
       statut: 'echec',
       message: error.message,
       userId
-    }).catch(() => {});
+    });
     res.status(500).json({ success: false, message: `❌ Échec : ${error.message}` });
   }
 });
 
-// ============================================================
-// POST /api/backup/auto
-// ============================================================
 router.post('/backup/auto', async (req, res) => {
-  if (!PG_BIN.found) {
-    return res.status(500).json({ 
-      success: false, 
-      message: 'PostgreSQL (pg_dump) non trouvé.' 
-    });
-  }
-  
   try {
-    const result = await lancerSauvegardeAutomatique(true); // Force = true pour le test manuel
-    res.json({ success: true, message: result.message });
+    const result = await lancerSauvegardeAutomatique(true);
+    res.json({ success: result.success, message: result.message });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ============================================================
-// ⭐ NOUVEAU : POST /api/backup/verifier-auto
-// ============================================================
-// Endpoint appelé par le frontend quand l'utilisateur ouvre l'application
-// Déclenche la sauvegarde automatique si :
-// - C'est vendredi après 9h ET pas encore sauvegardé
-// - OU c'est lundi/mardi/mercredi/jeudi ET la sauvegarde du vendredi n'a PAS été faite
-// ============================================================
 router.post('/backup/verifier-auto', async (req, res) => {
-  if (!PG_BIN.found) {
-    return res.status(500).json({ 
-      success: false, 
-      message: 'PostgreSQL (pg_dump) non trouvé.' 
-    });
-  }
-  
   try {
-    console.log('📱 Vérification déclenchée par l\'ouverture de l\'application...');
     const result = await verifierEtLancerSauvegarde();
     res.json(result);
   } catch (error) {
-    console.error('❌ Erreur vérification auto:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ============================================================
-// ⭐ NOUVEAU : GET /api/backup/statut-auto-detail
-// ============================================================
 router.get('/backup/statut-auto-detail', async (req, res) => {
   try {
     const maintenant = new Date();
-    const jourSemaine = maintenant.getDay();
-    const heure = maintenant.getHours();
     const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-    
-    const doitFaire = await doitFaireSauvegardeAuto();
+    const doitFaire = await doitFaireSauvegardeAuto(false);
     const derniereSauvegarde = await getDerniereSauvegardeAuto();
-    const vendrediFait = await sauvegardeVendrediFaite();
     const dejaFaiteAujourdhui = await sauvegardeDejaFaiteAujourdhui('auto');
-    
+    const dernierJourPlanifie = getDernierJourPlanifie();
+    const echecRecent = await echecAutoRecent();
+
     res.json({
       success: true,
       statut: {
         dateActuelle: maintenant.toLocaleString('fr-FR'),
-        jourSemaine: jours[jourSemaine],
-        heure: heure,
+        jourSemaine: jours[maintenant.getDay()],
+        heure: maintenant.getHours(),
+        joursSauvegarde: JOURS_SAUVEGARDE_AUTO.map(j => jours[j]),
+        heureSauvegarde: HEURE_SAUVEGARDE_AUTO,
         doitFaireSauvegarde: doitFaire,
-        dejaFaiteAujourdhui: dejaFaiteAujourdhui,
-        sauvegardeVendrediFaite: vendrediFait,
+        dejaFaiteAujourdhui,
+        sauvegardeEnCours,
+        echecRecent,
+        pgTrouve: PG_BIN.found,
+        dernierJourPlanifie: dernierJourPlanifie ? dernierJourPlanifie.toLocaleString('fr-FR') : null,
         derniereSauvegarde: derniereSauvegarde ? {
           date: derniereSauvegarde.created_at,
           fichier: derniereSauvegarde.nom_fichier,
@@ -604,110 +666,39 @@ router.get('/backup/statut-auto-detail', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Erreur statut détaillé:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ============================================================
-// ⭐ PLANIFICATION : TOUS LES VENDREDIS À 9H
-// ============================================================
-cron.schedule('0 9 * * 5', async () => {
-  const now = new Date();
-  console.log(`⏰ [${now.toLocaleString('fr-FR')}] PLANIFICATION: Sauvegarde auto du vendredi 9h...`);
-  try {
-    const result = await lancerSauvegardeAutomatique(false);
-    console.log(`✅ Résultat planification: ${result.message}`);
-  } catch (error) {
-    console.error('❌ Erreur sauvegarde auto planifiée:', error);
-  }
-});
-
-// ============================================================
-// ⭐ VÉRIFICATION PÉRIODIQUE TOUTES LES 30 MINUTES
-// ============================================================
-cron.schedule('*/30 * * * *', async () => {
-  const now = new Date();
-  const jourSemaine = now.getDay();
-  const heure = now.getHours();
-  
-  // Vérifier uniquement pendant les heures de bureau (9h-18h)
-  if (heure >= 9 && heure <= 18) {
-    console.log(`🔄 VÉRIFICATION PÉRIODIQUE (30min) - ${now.toLocaleString('fr-FR')}`);
-    try {
-      await verifierEtLancerSauvegarde();
-    } catch (error) {
-      console.error('❌ Erreur vérification périodique:', error);
-    }
-  }
-});
-
-// ============================================================
-// ⭐ VÉRIFICATION AU DÉMARRAGE DU SERVEUR
-// ============================================================
-setTimeout(async () => {
-  console.log('🔍 VÉRIFICATION INITIALE AU DÉMARRAGE DU SERVEUR...');
-  console.log(`📅 Date système: ${new Date().toLocaleString('fr-FR')}`);
-  try {
-    await verifierEtLancerSauvegarde();
-  } catch (error) {
-    console.error('❌ Erreur lors de la vérification initiale:', error);
-  }
-}, 5000);
-
-console.log('=' .repeat(60));
-console.log('✅ Sauvegarde automatique programmée : Tous les vendredis à 9h00');
-console.log('✅ Vérification au démarrage : Si vendredi après 9h, sauvegarde immédiate');
-console.log('✅ Vérification périodique : Toutes les 30 min (9h-18h)');
-console.log('✅ Rattrapage : Lundi-Jeudi si sauvegarde du vendredi non faite');
-console.log('✅ Vérification par l\'app : Quand l\'utilisateur ouvre l\'application');
-console.log('✅ Protection : Une seule sauvegarde auto par jour');
-console.log('=' .repeat(60));
-
-// ============================================================
-// GET /api/backup/last
-// ============================================================
 router.get('/backup/last', async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT * FROM omda_app.backup_historique
-       WHERE statut = 'succes'
-       ORDER BY created_at DESC LIMIT 1`
+    const result = await query(
+      `SELECT * FROM backup_historique WHERE statut = 'succes' ORDER BY created_at DESC LIMIT 1`
     );
-    if (result.rows.length === 0) {
-      return res.json({ success: true, date: null });
-    }
-    res.json({ success: true, date: result.rows[0].created_at, backup: result.rows[0] });
+    res.json({ success: true, backup: result.rows[0] || null });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ============================================================
-// GET /api/backup/historique - CORRIGÉ : Tri par date DESC (plus récent en haut)
-// ============================================================
 router.get('/backup/historique', async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await query(
       `SELECT bh.*, u.nom as utilisateur_nom
-       FROM omda_app.backup_historique bh
-       LEFT JOIN omda_app.utilisateurs u ON bh.created_by = u.id
+       FROM backup_historique bh
+       LEFT JOIN utilisateurs u ON bh.created_by = u.id
        ORDER BY bh.created_at DESC
        LIMIT 50`
     );
     res.json({ success: true, historique: result.rows });
   } catch (error) {
-    console.error('❌ Erreur historique:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ============================================================
-// GET /api/database/size
-// ============================================================
 router.get('/database/size', async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await query(
       `SELECT pg_size_pretty(pg_database_size($1)) as taille`,
       [DB_CONFIG.database]
     );
@@ -718,53 +709,90 @@ router.get('/database/size', async (req, res) => {
 });
 
 // ============================================================
-// POST /api/backup/restore
+// ROUTE RESTORE
 // ============================================================
 router.post('/backup/restore', upload.single('backup'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
   }
-  
+
   if (!PG_BIN.found) {
-    return res.status(500).json({ 
-      success: false, 
-      message: 'PostgreSQL (psql) non trouvé.' 
+    return res.status(500).json({
+      success: false,
+      message: 'PostgreSQL (psql) non trouvé.'
     });
   }
-  
+
   const cheminTemp = req.file.path;
+  const userId = req.body.userId;
+  let cheminNettoye = null;
+
   try {
-    await executerRestore(cheminTemp);
+    console.log(`\n📥 Restauration: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)} Ko)`);
+
+    if (req.file.size === 0) {
+      throw new Error('Le fichier est vide');
+    }
+
+    console.log('\n🗑️  ═══ RÉINITIALISATION DU SCHÉMA ═══');
+    await reinitialiserSchema();
+    console.log('   ✅ DROP SCHEMA omda_app CASCADE');
+    console.log('   ✅ CREATE SCHEMA omda_app');
+
+    console.log('\n🧹 ═══ NETTOYAGE DU FICHIER SQL ═══');
+    cheminNettoye = nettoyerFichierSQL(cheminTemp);
+    console.log('   ✅ Fichier nettoyé');
+
+    console.log('\n🔄 ═══ RESTAURATION ═══');
+    await executerRestore(cheminNettoye);
+    console.log('   ✅ Restauration terminée');
+
     await journaliser({
       type: 'restauration',
       nomFichier: req.file.originalname,
       cheminComplet: cheminTemp,
       statut: 'succes',
-      userId: req.body.userId
+      userId
     });
-    res.json({ success: true, message: '✅ Restauration effectuée avec succès' });
+
+    console.log('\n✅ ✅ ✅ RESTAURATION RÉUSSIE ✅ ✅ ✅\n');
+
+    res.json({
+      success: true,
+      message: '✅ Restauration effectuée avec succès ! Rechargement dans 2 secondes...',
+      details: {
+        fichier: req.file.originalname,
+        taille: req.file.size,
+        date: new Date().toISOString(),
+        schemaReinitialise: true,
+      }
+    });
   } catch (error) {
-    console.error('❌ Erreur restauration:', error);
+    console.error('\n❌ ❌ ❌ ERREUR RESTAURATION ❌ ❌ ❌');
+    console.error('   Message:', error.message);
+
     await journaliser({
       type: 'restauration',
       nomFichier: req.file.originalname,
       cheminComplet: cheminTemp,
       statut: 'echec',
       message: error.message
-    }).catch(() => {});
-    res.status(500).json({ success: false, message: `❌ Échec : ${error.message}` });
+    });
+
+    res.status(500).json({
+      success: false,
+      message: `❌ Échec de la restauration : ${error.message}`
+    });
   } finally {
     try {
-      if (fs.existsSync(cheminTemp)) {
-        fs.unlinkSync(cheminTemp);
-      }
-    } catch (e) {}
+      if (fs.existsSync(cheminTemp)) fs.unlinkSync(cheminTemp);
+    } catch (e) { /* ignore */ }
+    try {
+      if (cheminNettoye && fs.existsSync(cheminNettoye)) fs.unlinkSync(cheminNettoye);
+    } catch (e) { /* ignore */ }
   }
 });
 
-// ============================================================
-// GET /api/backup/telecharger/:type
-// ============================================================
 router.get('/backup/telecharger/:type', async (req, res) => {
   const { type } = req.params;
   const nomFichier = type === 'auto' ? NOM_FICHIER_AUTO : NOM_FICHIER_MANUEL;
@@ -779,5 +807,67 @@ router.get('/backup/telecharger/:type', async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+// ============================================================
+// CRON PRINCIPAL — Lun/Mer/Ven à 9h PILE
+// ============================================================
+cron.schedule(`0 ${HEURE_SAUVEGARDE_AUTO} * * 1,3,5`, async () => {
+  console.log(`\n⏰ ═══ CRON 9h (Lun/Mer/Ven) ═══`);
+  try {
+    const result = await lancerSauvegardeAutomatique(false);
+    console.log(`✅ Résultat cron 9h : ${result.message}`);
+  } catch (error) {
+    console.error('❌ Erreur cron 9h:', error.message);
+  }
+});
+
+// ============================================================
+// CRON RATTRAPAGE — Toutes les 15 minutes (24h/24)
+// ============================================================
+cron.schedule('*/15 * * * *', async () => {
+  const maintenant = new Date();
+  const hh = String(maintenant.getHours()).padStart(2, '0');
+  const mm = String(maintenant.getMinutes()).padStart(2, '0');
+  console.log(`\n⏰ ═══ VÉRIFICATION RATTRAPAGE ${hh}:${mm} ═══`);
+  try {
+    const result = await verifierEtLancerSauvegarde();
+    if (result.success) {
+      console.log(`✅ Rattrapage effectué : ${result.message}`);
+    } else {
+      console.log(`ℹ️ ${result.message}`);
+    }
+  } catch (error) {
+    console.error('❌ Erreur vérif rattrapage:', error.message);
+  }
+});
+
+// ============================================================
+// VÉRIFICATION AU DÉMARRAGE (+5s après le boot)
+// ============================================================
+setTimeout(async () => {
+  console.log('\n════════════════════════════════════════════');
+  console.log('🔍 VÉRIFICATION INITIALE AU DÉMARRAGE');
+  console.log('════════════════════════════════════════════');
+  try {
+    const result = await verifierEtLancerSauvegarde();
+    if (result.success) {
+      console.log(`✅ ${result.message}`);
+    } else {
+      console.log(`ℹ️ ${result.message}`);
+    }
+  } catch (error) {
+    console.error('❌ Erreur vérif initiale:', error.message);
+  }
+}, 5000);
+
+// ============================================================
+// LOGS DE DÉMARRAGE
+// ============================================================
+console.log('='.repeat(60));
+console.log(`✅ Sauvegarde auto : ${getJoursSauvegardeLabels()} à ${HEURE_SAUVEGARDE_AUTO}h`);
+console.log('✅ Rattrapage : toutes les 15 min (24h/24) + au démarrage');
+console.log(`✅ Dump : --schema=${DB_CONFIG.schema} uniquement`);
+console.log(`✅ Restore : DROP SCHEMA ${DB_CONFIG.schema} CASCADE + nettoyage`);
+console.log('='.repeat(60));
 
 module.exports = router;

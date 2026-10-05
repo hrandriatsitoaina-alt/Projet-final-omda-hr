@@ -4,12 +4,15 @@ import { useNavigate } from 'react-router-dom';
 import '../styles/Authentification.css';
 import AdminPanel from './AdminPanel';
 import omdaLogo from '../assets/imagesOMDA.png';
-import { useToast } from '../components/Toast';
+import { useToast, forceReflow } from '../components/Toast';
 import {
   Lock, User, Eye, EyeOff, Crown, LogIn,
   Menu, X, AlertCircle, Mail, ShieldCheck, Loader2, CheckCircle2
 } from 'lucide-react';
 import { useT } from '../hooks/useT';
+
+const ALLOWED_ADMIN_ROLES = ['super_admin', 'daf', 'admin'];
+const API = 'http://localhost:3001';
 
 const Authentification = () => {
   const navigate = useNavigate();
@@ -32,17 +35,24 @@ const Authentification = () => {
   const [isFormValid, setIsFormValid] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // ====== ÉTAT MODAL SUPER ADMIN (2 ÉTAPES) ======
+  // ====== MODAL SUPER ADMIN (2 étapes) ======
   const [showAdminModal, setShowAdminModal] = useState(false);
-  const [adminStep, setAdminStep] = useState(1); // 1 = email, 2 = password
+  const [adminStep, setAdminStep] = useState(1);
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [adminVerifiedUser, setAdminVerifiedUser] = useState(null);
   const [isAdminVerifying, setIsAdminVerifying] = useState(false);
   const [adminError, setAdminError] = useState('');
-  // progress: 0 -> 100
   const [verifyProgress, setVerifyProgress] = useState(0);
+
+  // ====== BOOTSTRAP (1er Super Admin) ======
+  const [showBootstrapModal, setShowBootstrapModal] = useState(false);
+  const [bootstrapData, setBootstrapData] = useState({
+    nom: '', email: '', mot_de_passe: '', confirm: '',
+  });
+  const [bootstrapError, setBootstrapError] = useState('');
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
 
   const [adminToken, setAdminToken] = useState(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
@@ -51,12 +61,14 @@ const Authentification = () => {
   const [activeSection, setActiveSection] = useState('home');
 
   const isMountedRef = useRef(true);
+  const emailInputRef = useRef(null);
+  const passwordInputRef = useRef(null);
+  const usernameInputRef = useRef(null);
+  const bootstrapFirstInputRef = useRef(null);
 
   useEffect(() => {
     isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
+    return () => { isMountedRef.current = false; };
   }, []);
 
   useEffect(() => {
@@ -81,10 +93,28 @@ const Authentification = () => {
     setIsFormValid(username.trim() !== '' && password.trim() !== '');
   }, [username, password]);
 
+  useEffect(() => {
+    if (showAdminModal && adminStep === 1) {
+      const id = setTimeout(() => emailInputRef.current?.focus(), 80);
+      return () => clearTimeout(id);
+    }
+    if (showAdminModal && adminStep === 2) {
+      const id = setTimeout(() => passwordInputRef.current?.focus(), 80);
+      return () => clearTimeout(id);
+    }
+  }, [showAdminModal, adminStep]);
+
+  useEffect(() => {
+    if (showBootstrapModal) {
+      const id = setTimeout(() => bootstrapFirstInputRef.current?.focus(), 80);
+      return () => clearTimeout(id);
+    }
+  }, [showBootstrapModal]);
+
   const handleUsernameChange = useCallback((e) => setUsername(e.target.value), []);
   const handlePasswordChange = useCallback((e) => setPassword(e.target.value), []);
 
-  // ── LOGIN ────────────────────────────────────────────────
+  // ── LOGIN ──
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!username || !password) {
@@ -93,7 +123,7 @@ const Authentification = () => {
     }
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/auth/login', {
+      const response = await fetch(`${API}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -109,28 +139,60 @@ const Authentification = () => {
         localStorage.setItem('userRole', data.user.role);
         localStorage.setItem('userName', data.user.nom);
         localStorage.setItem('userId', data.user.id);
-        showToast(t('Connexion réussie', 'Nifandray soa aman-tsara', 'Login successful'), 'success');
+        showToast(t('Connexion réussie', 'Nifandray', 'Login successful'), 'success');
         setTimeout(() => navigate('/dashboard'), 500);
       } else {
-        showToast(
-          data.message || t('Identifiants incorrects', 'Diso ny mombamomba', 'Incorrect credentials'),
-          'error'
-        );
+        showToast(data.message || t('Identifiants incorrects', 'Diso ny mombamomba', 'Incorrect credentials'), 'error');
         setIsLoading(false);
       }
     } catch (error) {
       console.error(error);
       if (!isMountedRef.current) return;
-      showToast(
-        t('Erreur de connexion au serveur.', 'Nisy olana tamin\'ny fifandraisana.', 'Server connection error.'),
-        'error'
-      );
+      showToast(t('Erreur de connexion au serveur.', 'Nisy olana', 'Server connection error.'), 'error');
       setIsLoading(false);
     }
   };
 
-  // ── SUPER ADMIN : ouvrir le modal ──
-  const openAdminModal = useCallback(() => {
+  // ═══════════════════════════════════════════════════════════
+  // OUVERTURE DU MODAL SUPER ADMIN
+  //  ⚠️ IMPORTANT : à chaque clic, on vérifie D'ABORD le bootstrap.
+  //     Si base vide → modal création.
+  //     Sinon → modal 2 étapes (email → code).
+  //     ON NE RÉUTILISE PAS la session existante.
+  // ═══════════════════════════════════════════════════════════
+  const openAdminModal = useCallback(async () => {
+    console.log('🔘 openAdminModal déclenché');
+
+    // ✅ Nettoyer TOUTE session précédente pour forcer la vérification
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminUser');
+    localStorage.removeItem('adminName');
+    localStorage.removeItem('adminEmail');
+    localStorage.removeItem('adminRole');
+    localStorage.removeItem('adminAccessRole');
+    setAdminToken(null);
+
+    // A) Vérifier si bootstrap nécessaire
+    try {
+      const bsRes = await fetch(`${API}/api/admin/bootstrap-status`)
+        .then(r => r.json())
+        .catch(() => null);
+
+      console.log('📡 bootstrap-status →', bsRes);
+
+      if (bsRes && bsRes.success && bsRes.needsBootstrap) {
+        console.log('🆕 Aucun Super Admin → ouverture modal bootstrap');
+        setShowBootstrapModal(true);
+        setBootstrapData({ nom: '', email: '', mot_de_passe: '', confirm: '' });
+        setBootstrapError('');
+        return;
+      }
+    } catch (e) {
+      console.warn('❌ bootstrap-status error:', e);
+    }
+
+    // B) Sinon → modal 2 étapes
+    console.log('🔐 Ouverture modal 2 étapes');
     setShowAdminModal(true);
     setAdminStep(1);
     setAdminEmail('');
@@ -142,7 +204,61 @@ const Authentification = () => {
     setShowAdminPassword(false);
   }, []);
 
-  // ── Fermer le modal ──
+  // ── CRÉATION DU PREMIER SUPER ADMIN ──
+  const handleBootstrap = async (e) => {
+    e.preventDefault();
+    setBootstrapError('');
+
+    if (!bootstrapData.nom.trim() || !bootstrapData.email.trim() || !bootstrapData.mot_de_passe) {
+      setBootstrapError(t('Veuillez remplir tous les champs', 'Fenoy ny saha rehetra', 'Please fill all fields'));
+      return;
+    }
+    if (bootstrapData.mot_de_passe.length !== 4) {
+      setBootstrapError(t('Le code doit contenir 4 caractères', '4 litera', 'Code must be 4 chars'));
+      return;
+    }
+    if (bootstrapData.mot_de_passe !== bootstrapData.confirm) {
+      setBootstrapError(t('Les codes ne correspondent pas', 'Tsy mifanaraka', 'Codes do not match'));
+      return;
+    }
+
+    setIsBootstrapping(true);
+    try {
+      const res = await fetch(`${API}/api/admin/bootstrap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nom: bootstrapData.nom.trim(),
+          email: bootstrapData.email.trim().toLowerCase(),
+          mot_de_passe: bootstrapData.mot_de_passe,
+        }),
+      });
+      const data = await res.json();
+      if (!isMountedRef.current) return;
+
+      if (data.success && data.token && data.user) {
+        localStorage.setItem('adminToken', data.token);
+        localStorage.setItem('adminUser', JSON.stringify(data.user));
+        localStorage.setItem('adminName', data.user.nom);
+        localStorage.setItem('adminEmail', data.user.email);
+        localStorage.setItem('adminRole', data.user.role);
+        localStorage.setItem('adminAccessRole', data.user.role);
+        setAdminToken(data.token);
+        setShowBootstrapModal(false);
+        showToast(t('Super Admin créé ✅', 'Vita ✅', 'Super Admin created ✅'), 'success');
+        setShowAdminPanel(true);
+      } else {
+        setBootstrapError(data.message || t('Erreur création', 'Olana', 'Creation error'));
+      }
+    } catch (err) {
+      console.error('bootstrap error:', err);
+      if (!isMountedRef.current) return;
+      setBootstrapError(t('Erreur de connexion', 'Nisy olana', 'Connection error'));
+    } finally {
+      if (isMountedRef.current) setIsBootstrapping(false);
+    }
+  };
+
   const closeAdminModal = useCallback(() => {
     setShowAdminModal(false);
     setAdminStep(1);
@@ -153,12 +269,19 @@ const Authentification = () => {
     setVerifyProgress(0);
     setIsAdminVerifying(false);
     setShowAdminPassword(false);
+    forceReflow();
   }, []);
 
-  // ── Animation de progression 5 secondes ──
+  const closeBootstrapModal = useCallback(() => {
+    setShowBootstrapModal(false);
+    setBootstrapData({ nom: '', email: '', mot_de_passe: '', confirm: '' });
+    setBootstrapError('');
+    forceReflow();
+  }, []);
+
   const runVerifyAnimation = () => new Promise((resolve) => {
     setVerifyProgress(0);
-    const duration = 5000;
+    const duration = 1500;
     const interval = 50;
     const steps = duration / interval;
     let current = 0;
@@ -173,7 +296,6 @@ const Authentification = () => {
     }, interval);
   });
 
-  // ── ÉTAPE 1 : vérifier l'email (super_admin ou admin seulement) ──
   const verifyAdminEmail = async () => {
     const email = adminEmail.trim().toLowerCase();
     if (!email) {
@@ -181,7 +303,7 @@ const Authentification = () => {
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setAdminError(t('Format d\'email invalide', 'Diso ny endrik\'ny mailaka', 'Invalid email format'));
+      setAdminError(t("Format d'email invalide", "Diso ny endrik'ny mailaka", 'Invalid email format'));
       return;
     }
 
@@ -189,51 +311,19 @@ const Authentification = () => {
     setIsAdminVerifying(true);
 
     try {
-      // Lancer en parallèle : vérification serveur + animation 5s
-      const [serverRes] = await Promise.all([
-        fetch('http://localhost:3001/api/admin/verify-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email }),
-        }).then(r => r.json()).catch(() => ({ success: false })),
-        runVerifyAnimation(),
-      ]);
+      const serverRes = await fetch(`${API}/api/admin/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, scope: 'admin-panel' }),
+      }).then(r => r.json()).catch(() => null);
+
+      await Promise.all([Promise.resolve(), runVerifyAnimation()]);
 
       if (!isMountedRef.current) return;
 
-      // Si le serveur ne connaît pas la route, on fait un fallback côté client
-      let isValid = false;
-      let userInfo = null;
-
       if (serverRes && serverRes.success && serverRes.user) {
-        isValid = true;
-        userInfo = serverRes.user;
-      } else if (serverRes && serverRes.success === false && serverRes.notFound !== true) {
-        isValid = false;
-      } else {
-        // Fallback : vérifier via /api/auth/users
-        try {
-          const resp = await fetch('http://localhost:3001/api/auth/users');
-          const data = await resp.json();
-          const users = data.users || [];
-          const found = users.find(u =>
-            (u.email || '').toLowerCase() === email &&
-            (u.role === 'super_admin' || u.role === 'admin') &&
-            u.statut === 'actif'
-          );
-          if (found) {
-            isValid = true;
-            userInfo = { id: found.id, nom: found.nom, email: found.email, role: found.role };
-          }
-        } catch (e) {
-          console.warn('Fallback verify email error:', e);
-        }
-      }
-
-      if (isValid) {
-        setAdminVerifiedUser(userInfo);
+        setAdminVerifiedUser(serverRes.user);
         setIsAdminVerifying(false);
-        // Petite pause pour montrer 100%
         setTimeout(() => {
           if (!isMountedRef.current) return;
           setAdminStep(2);
@@ -241,28 +331,23 @@ const Authentification = () => {
         }, 400);
       } else {
         setIsAdminVerifying(false);
-        setAdminError(t(
-          'Accès refusé. Cet email n\'est pas autorisé.',
-          'Tsy nahazo alalana. Tsy azo ekena ity mailaka ity.',
-          'Access denied. This email is not authorized.'
+        setAdminError(serverRes?.message || t(
+          "Accès refusé. Cet email n'est pas autorisé.",
+          'Tsy nahazo alalana.',
+          'Access denied.'
         ));
       }
     } catch (error) {
       console.error('verifyAdminEmail error:', error);
       if (!isMountedRef.current) return;
       setIsAdminVerifying(false);
-      setAdminError(t('Erreur de connexion', 'Nisy olana tamin\'ny fifandraisana', 'Connection error'));
+      setAdminError(t('Erreur de connexion', 'Nisy olana', 'Connection error'));
     }
   };
 
-  // ── ÉTAPE 2 : vérifier le mot de passe ──
   const verifyAdminPassword = async () => {
     if (!adminPassword || adminPassword.length !== 4) {
-      setAdminError(t(
-        'Veuillez entrer un code à 4 chiffres',
-        'Ampidiro kaody 4 isa',
-        'Please enter a 4-digit code'
-      ));
+      setAdminError(t('Veuillez entrer un code à 4 caractères', 'Ampidiro kaody 4 isa', 'Please enter a 4-character code'));
       return;
     }
 
@@ -270,17 +355,17 @@ const Authentification = () => {
     setIsAdminVerifying(true);
 
     try {
-      const [serverRes] = await Promise.all([
-        fetch('http://localhost:3001/api/admin/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            password: adminPassword,
-            email: adminVerifiedUser?.email,
-          }),
-        }).then(r => r.json()).catch(() => ({ success: false })),
-        runVerifyAnimation(),
-      ]);
+      const serverRes = await fetch(`${API}/api/admin/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          password: adminPassword,
+          email: adminVerifiedUser?.email,
+          scope: 'admin-panel',
+        }),
+      }).then(r => r.json()).catch(() => null);
+
+      await Promise.all([Promise.resolve(), runVerifyAnimation()]);
 
       if (!isMountedRef.current) return;
 
@@ -301,10 +386,7 @@ const Authentification = () => {
           localStorage.setItem('adminAccessRole', adminVerifiedUser.role);
         }
 
-        showToast(
-          serverRes.message || t('Accès autorisé ✅', 'Nahazo alalana ✅', 'Access granted ✅'),
-          'success'
-        );
+        showToast(serverRes.message || t('Accès autorisé ✅', 'Nahazo alalana ✅', 'Access granted ✅'), 'success');
 
         setIsAdminVerifying(false);
 
@@ -315,27 +397,28 @@ const Authentification = () => {
         }, 400);
       } else {
         setIsAdminVerifying(false);
-        setAdminError(t(
-          'Mot de passe incorrect ❌',
-          'Diso ny teny miafina ❌',
-          'Incorrect password ❌'
-        ));
+        setAdminError(serverRes?.message || t('Code incorrect ❌', 'Diso ny kaody ❌', 'Incorrect code ❌'));
         setAdminPassword('');
       }
     } catch (error) {
       console.error('verifyAdminPassword error:', error);
       if (!isMountedRef.current) return;
       setIsAdminVerifying(false);
-      setAdminError(t('Erreur de connexion', 'Nisy olana tamin\'ny fifandraisana', 'Connection error'));
+      setAdminError(t('Erreur de connexion', 'Nisy olana', 'Connection error'));
     }
   };
 
-  // ── Fermeture propre du AdminPanel ──
   const handleCloseAdminPanel = useCallback(() => {
     setShowAdminPanel(false);
     localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminUser');
+    localStorage.removeItem('adminName');
+    localStorage.removeItem('adminEmail');
+    localStorage.removeItem('adminRole');
+    localStorage.removeItem('adminAccessRole');
     setAdminToken(null);
     setIsAdminVerifying(false);
+    forceReflow();
   }, []);
 
   const goToRegister = useCallback(() => {
@@ -347,66 +430,38 @@ const Authentification = () => {
     home: {
       title: t("Bienvenue à l'OMDA", "Tongasoa eto amin'ny OMDA", 'Welcome to OMDA'),
       description: t(
-        "L'Office Malagasy du Droit d'Auteur est l'institution publique chargée de la gestion et de la protection des droits d'auteur à Madagascar. Créé en 1984, il œuvre pour la reconnaissance et la rémunération des créateurs.",
-        "Ny Birao Malagasy momba ny Zon'ny Mpanoratra dia andrim-panjakana miandraikitra ny fitantanana sy fiarovana ny zon'ny mpanoratra eto Madagasikara. Natsangana tamin'ny 1984 izy, miasa ho fanekena sy valisoa ny mpamorona.",
-        "The Malagasy Copyright Office is the public institution responsible for managing and protecting copyright in Madagascar. Founded in 1984, it works for the recognition and remuneration of creators."
+        "L'Office Malagasy du Droit d'Auteur est l'institution publique chargée de la gestion et de la protection des droits d'auteur à Madagascar.",
+        "Ny Birao Malagasy momba ny Zon'ny Mpanoratra dia andrim-panjakana miandraikitra ny fitantanana sy fiarovana ny zon'ny mpanoratra eto Madagasikara.",
+        "The Malagasy Copyright Office is the public institution responsible for managing and protecting copyright in Madagascar."
       ),
       subtext: t(
-        "Notre mission : protéger les œuvres, collecter et répartir les droits, sensibiliser le public et lutter contre la contrefaçon.",
-        "Ny iraka ataonay: miaro ny sanganasa, manangona sy mizara ny zo, mampahafantatra ny besinimaro ary miady amin'ny hosoka.",
-        "Our mission: protect works, collect and distribute royalties, raise public awareness and fight counterfeiting."
+        "Notre mission : protéger les œuvres, collecter et répartir les droits.",
+        "Ny iraka ataonay: miaro ny sanganasa, manangona sy mizara ny zo.",
+        "Our mission: protect works, collect and distribute royalties."
       ),
     },
     features: {
       title: t('Nos services', 'Ny serivisinay', 'Our services'),
-      description: t(
-        "L'OMDA propose une gamme de services dédiés aux auteurs, artistes et créateurs malgaches : enregistrement des œuvres, perception des droits, conseil juridique, et bien plus.",
-        "Manolotra serivisy isan-karazany ho an'ny mpanoratra, mpanakanto ary mpamorona malagasy ny OMDA: firaketana sanganasa, fanangonana zo, torohevitra ara-dalàna, sy ny maro hafa.",
-        "OMDA offers a range of services dedicated to Malagasy authors, artists and creators: work registration, royalty collection, legal advice, and much more."
-      ),
-      subtext: t(
-        "Nous accompagnons les créateurs à chaque étape de leur carrière, de la protection de leurs œuvres à la perception des redevances.",
-        "Manaraka ny mpamorona amin'ny dingana rehetra amin'ny asany izahay, manomboka amin'ny fiarovana ny sanganasany ka hatramin'ny fahazoana ny vola miditra.",
-        "We support creators at every stage of their career, from protecting their works to collecting royalties."
-      ),
+      description: t("L'OMDA propose une gamme de services dédiés aux auteurs.", "Manolotra serivisy isan-karazany ny OMDA.", 'OMDA offers a range of services.'),
+      subtext: t("Nous accompagnons les créateurs.", "Manaraka ny mpamorona izahay.", "We support creators."),
     },
     about: {
       title: t("À propos de l'OMDA", "Momba ny OMDA", 'About OMDA'),
-      description: t(
-        "Créé en 1984 par le décret n°84-389, l'OMDA est un Établissement Public à Caractère Industriel et Commercial (EPIC). Placé sous la tutelle du Ministère de la Communication et de la Culture, il est un acteur clé du paysage culturel malgache.",
-        "Natsangana tamin'ny 1984 tamin'ny didim-panjakana n°84-389 ny OMDA, ary andrim-panjakana ara-indostria sy ara-barotra (EPIC) izy. Eo ambany fiahian'ny Ministeran'ny Fifandraisana sy ny Kolontsaina izy, ary mpilalao fototra amin'ny tontolon'ny kolontsaina malagasy.",
-        "Created in 1984 by decree No. 84-389, OMDA is a Public Industrial and Commercial Establishment (EPIC). Under the supervision of the Ministry of Communication and Culture, it is a key player in the Malagasy cultural landscape."
-      ),
-      subtext: t(
-        "Notre équipe est dédiée à la promotion et à la défense des droits des auteurs, et nous collaborons avec des partenaires nationaux et internationaux pour renforcer notre action.",
-        "Ny ekipanay dia natokana ho fampiroboroboana sy fiarovana ny zon'ny mpanoratra, ary miara-miasa amin'ny mpiara-miombon'antoka eo an-toerana sy iraisam-pirenena izahay hanamafisana ny asanay.",
-        "Our team is dedicated to promoting and defending authors' rights, and we collaborate with national and international partners to strengthen our action."
-      ),
+      description: t("Créé en 1984, l'OMDA est un EPIC.", "Natsangana tamin'ny 1984 ny OMDA.", 'Created in 1984, OMDA is an EPIC.'),
+      subtext: t("Notre équipe est dédiée.", "Ny ekipanay dia natokana.", "Our team is dedicated."),
     },
     service: {
       title: t('Nos prestations', 'Ny tolotray', 'Our services'),
-      description: t(
-        "Nous offrons des prestations sur mesure pour les auteurs, les éditeurs, les producteurs et les utilisateurs d'œuvres. Enregistrement, gestion des contrats, médiation, formation.",
-        "Manolotra tolotra manokana ho an'ny mpanoratra, mpamoaka boky, mpamokatra ary mpampiasa sanganasa izahay. Firaketana, fitantanana fifanarahana, fanelanelanana, fiofanana.",
-        "We offer tailor-made services for authors, publishers, producers and users of works. Registration, contract management, mediation, training."
-      ),
-      subtext: t(
-        "Nous mettons à disposition des outils et des conseils pour vous aider à protéger et valoriser votre création.",
-        "Manolotra fitaovana sy torohevitra izahay hanampiana anao hiaro sy hanandratra ny sanganasanao.",
-        "We provide tools and advice to help you protect and enhance your creation."
-      ),
+      description: t("Nous offrons des prestations sur mesure.", "Manolotra tolotra manokana izahay.", "We offer tailor-made services."),
+      subtext: t("Nous mettons à disposition des outils.", "Manolotra fitaovana izahay.", "We provide tools."),
     },
     contact: {
       title: t('Contactez-nous', 'Mifandraisa aminay', 'Contact us'),
-      description: t(
-        "Nous sommes à votre écoute pour toute question relative au droit d'auteur. N'hésitez pas à nous contacter par téléphone, email ou en visitant nos locaux.",
-        "Vonona hihaino anao izahay amin'ny fanontaniana rehetra momba ny zon'ny mpanoratra. Aza misalasala mifandray aminay amin'ny finday, mailaka na mitsidika ny biraonay.",
-        "We are here to answer any questions you may have about copyright. Feel free to contact us by phone, email or by visiting our offices."
-      ),
+      description: t("Nous sommes à votre écoute.", "Vonona hihaino anao izahay.", "We are here to answer."),
       subtext: t(
-        "Adresse : Lot II F 62, Rue Fredy Rajaofera, Antaninandro, Antananarivo 101. Tél : 261 20 22 610 19. Email : omda@moov.mg",
-        "Adiresy : Lot II F 62, Rue Fredy Rajaofera, Antaninandro, Antananarivo 101. Finday : 261 20 22 610 19. Mailaka : omda@moov.mg",
-        "Address: Lot II F 62, Rue Fredy Rajaofera, Antaninandro, Antananarivo 101. Phone: 261 20 22 610 19. Email: omda@moov.mg"
+        "Adresse : Lot II F 62, Antaninandro, Antananarivo 101.",
+        "Adiresy : Lot II F 62, Antaninandro, Antananarivo 101.",
+        "Address: Lot II F 62, Antaninandro, Antananarivo 101."
       ),
     },
   }), [t]);
@@ -465,7 +520,7 @@ const Authentification = () => {
                   <Lock size={24} className="login-icon" />
                   <h2>{t('Authentification', 'Fanamarinana', 'Authentication')}</h2>
                   <p className="login-subtitle">
-                    {t('Connectez-vous à votre espace', 'Mifandraisa amin\'ny sehatrao', 'Log in to your space')}
+                    {t('Connectez-vous à votre espace', "Mifandraisa amin'ny sehatrao", 'Log in to your space')}
                   </p>
                 </div>
 
@@ -473,6 +528,7 @@ const Authentification = () => {
                   <div className="form-group">
                     <label><User size={14} /> {t('Identifiant', 'Mpampiasa', 'Username')}</label>
                     <input
+                      ref={usernameInputRef}
                       type="text"
                       placeholder={t('Votre email', 'Ny mailakao', 'Your email')}
                       className="input-field"
@@ -519,7 +575,7 @@ const Authentification = () => {
                 <div className="login-footer">
                   <div className="help-row">
                     <AlertCircle size={14} />
-                    <span>{t('Besoin d\'aide ?', 'Mila fanampiana ?', 'Need help?')}</span>
+                    <span>{t("Besoin d'aide ?", 'Mila fanampiana ?', 'Need help?')}</span>
                     <a href="mailto:omda@moov.mg">omda@moov.mg</a>
                   </div>
                 </div>
@@ -539,33 +595,137 @@ const Authentification = () => {
         </footer>
       </div>
 
-      {/* ============ MODAL SUPER ADMIN PRO (2 ÉTAPES) ============ */}
-      {showAdminModal && (
-        <div className="modal-overlay admin-modal-overlay">
-          <div className="admin-pro-modal">
-            {/* En-tête */}
+      {/* ============ MODAL BOOTSTRAP : 1er SUPER ADMIN ============ */}
+      {showBootstrapModal && (
+        <div
+          className="modal-overlay admin-modal-overlay"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !isBootstrapping) closeBootstrapModal();
+          }}
+        >
+          <div className="admin-pro-modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="admin-pro-header">
-              <div className="admin-pro-badge">
-                <Crown size={18} />
+              <div className="admin-pro-badge"><Crown size={18} /></div>
+              <div className="admin-pro-header-text">
+                <h3>{t('Création du premier Super Admin', 'Famoronana Super Admin voalohany', 'Create first Super Admin')}</h3>
+                <p>{t('Aucun compte Super Admin en base', 'Tsy misy Super Admin', 'No Super Admin in database')}</p>
               </div>
+              <button
+                type="button"
+                className="admin-pro-close"
+                onClick={closeBootstrapModal}
+                disabled={isBootstrapping}
+              >✕</button>
+            </div>
+
+            <form className="admin-pro-body" onSubmit={handleBootstrap}>
+              <div className="admin-pro-field">
+                <label><User size={14} /> {t('Nom complet', 'Anarana', 'Full name')}</label>
+                <input
+                  ref={bootstrapFirstInputRef}
+                  type="text"
+                  className="admin-pro-input"
+                  value={bootstrapData.nom}
+                  onChange={(e) => setBootstrapData(p => ({ ...p, nom: e.target.value }))}
+                  disabled={isBootstrapping}
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="admin-pro-field">
+                <label><Mail size={14} /> {t('Email', 'Mailaka', 'Email')}</label>
+                <input
+                  type="email"
+                  className="admin-pro-input"
+                  value={bootstrapData.email}
+                  onChange={(e) => setBootstrapData(p => ({ ...p, email: e.target.value }))}
+                  disabled={isBootstrapping}
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="admin-pro-field">
+                <label><Lock size={14} /> {t('Code (4 caractères)', 'Kaody (4 isa)', 'Code (4 chars)')}</label>
+                <input
+                  type="text"
+                  maxLength="4"
+                  className="admin-pro-input"
+                  value={bootstrapData.mot_de_passe}
+                  onChange={(e) => setBootstrapData(p => ({ ...p, mot_de_passe: e.target.value.slice(0, 4) }))}
+                  disabled={isBootstrapping}
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="admin-pro-field">
+                <label><Lock size={14} /> {t('Confirmer le code', 'Hamafiso ny kaody', 'Confirm code')}</label>
+                <input
+                  type="text"
+                  maxLength="4"
+                  className="admin-pro-input"
+                  value={bootstrapData.confirm}
+                  onChange={(e) => setBootstrapData(p => ({ ...p, confirm: e.target.value.slice(0, 4) }))}
+                  disabled={isBootstrapping}
+                  autoComplete="off"
+                />
+              </div>
+
+              {bootstrapError && (
+                <div className="admin-error">⚠️ {bootstrapError}</div>
+              )}
+
+              <div className="admin-pro-actions">
+                <button
+                  type="submit"
+                  className="admin-btn-validate"
+                  disabled={isBootstrapping}
+                >
+                  {isBootstrapping
+                    ? <><Loader2 size={16} className="spin" /> {t('Création…', 'Manamboatra…', 'Creating…')}</>
+                    : <><ShieldCheck size={16} /> {t('Créer le Super Admin', 'Hamorona', 'Create Super Admin')}</>}
+                </button>
+                <button
+                  type="button"
+                  className="admin-btn-cancel"
+                  onClick={closeBootstrapModal}
+                  disabled={isBootstrapping}
+                >
+                  {t('Annuler', 'Foanana', 'Cancel')}
+                </button>
+              </div>
+            </form>
+
+            <div className="admin-pro-footer">
+              <ShieldCheck size={14} />
+              <span>{t('Premier démarrage — création obligatoire', 'Fanombohana — famoronana tsy maintsy atao', 'First start — mandatory creation')}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============ MODAL SUPER ADMIN (2 étapes) ============ */}
+      {showAdminModal && (
+        <div
+          className="modal-overlay admin-modal-overlay"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !isAdminVerifying) closeAdminModal();
+          }}
+        >
+          <div className="admin-pro-modal" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="admin-pro-header">
+              <div className="admin-pro-badge"><Crown size={18} /></div>
               <div className="admin-pro-header-text">
                 <h3>{t('Espace Réservé', 'Sehatra Voatokana', 'Restricted Area')}</h3>
-                <p>{t(
-                  'Super Administrateur / Administrateur uniquement',
-                  'Super Administrateur / Administrateur ihany',
-                  'Super Administrator / Administrator only'
-                )}</p>
+                <p>{t('Super Admin / Admin uniquement', 'Super Admin / Admin ihany', 'Super Admin / Admin only')}</p>
               </div>
               <button
                 type="button"
                 className="admin-pro-close"
                 onClick={closeAdminModal}
                 disabled={isAdminVerifying}
-                aria-label="Fermer"
               >✕</button>
             </div>
 
-            {/* Indicateur d'étapes */}
             <div className="admin-steps">
               <div className={`admin-step ${adminStep === 1 ? 'active' : ''} ${adminStep > 1 ? 'done' : ''}`}>
                 <div className="admin-step-circle">
@@ -580,21 +740,20 @@ const Authentification = () => {
               </div>
             </div>
 
-            {/* Corps */}
             <div className="admin-pro-body">
               {adminStep === 1 && (
                 <>
                   <div className="admin-pro-field">
                     <label><Mail size={14} /> {t('Adresse email', 'Adiresy mailaka', 'Email address')}</label>
                     <input
+                      ref={emailInputRef}
                       type="email"
                       className="admin-pro-input"
-                      placeholder={t('ex: entre votre mail', 'oh: ampidiro ny Mail', 'e.g. add mail')}
+                      placeholder={t('ex: votre@omda.mg', 'oh: votre@omda.mg', 'e.g. your@omda.mg')}
                       value={adminEmail}
                       onChange={(e) => { setAdminEmail(e.target.value); setAdminError(''); }}
                       onKeyDown={(e) => { if (e.key === 'Enter' && !isAdminVerifying) verifyAdminEmail(); }}
                       disabled={isAdminVerifying}
-                      autoFocus
                       autoComplete="email"
                     />
                   </div>
@@ -653,24 +812,23 @@ const Authentification = () => {
                   </div>
 
                   <div className="admin-pro-field">
-                    <label><Lock size={14} /> {t('Code à 4 chiffres', 'Kaody 4 isa', '4-digit code')}</label>
+                    <label><Lock size={14} /> {t('Code (4 caractères)', 'Kaody (4 isa)', 'Code (4 characters)')}</label>
                     <div className="admin-password-wrapper">
                       <input
+                        ref={passwordInputRef}
                         type={showAdminPassword ? 'text' : 'password'}
                         maxLength="4"
-                        pattern="[0-9]*"
-                        inputMode="numeric"
+                        autoComplete="off"
                         className="admin-pro-input"
                         placeholder="• • • •"
                         value={adminPassword}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !isAdminVerifying) verifyAdminPassword(); }}
                         onChange={(e) => {
-                          const v = e.target.value.replace(/[^0-9]/g, '');
+                          const v = e.target.value.slice(0, 4);
                           setAdminPassword(v);
                           setAdminError('');
                         }}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !isAdminVerifying) verifyAdminPassword(); }}
                         disabled={isAdminVerifying}
-                        autoFocus
                       />
                       <button
                         type="button"
@@ -731,11 +889,7 @@ const Authentification = () => {
 
             <div className="admin-pro-footer">
               <ShieldCheck size={14} />
-              <span>{t(
-                'Connexion sécurisée — OMDA',
-                'Fifandraisana voaro — OMDA',
-                'Secure connection — OMDA'
-              )}</span>
+              <span>{t('Connexion sécurisée — OMDA', 'Fifandraisana voaro — OMDA', 'Secure connection — OMDA')}</span>
             </div>
           </div>
         </div>

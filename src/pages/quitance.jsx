@@ -11,21 +11,20 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import '../styles/quitance.css';
 import { generateQuitancePDF } from './pdf/quitance_pdf';
-// ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const QUITTANCES_PAR_PAGE_PDF = 20;
+
 const Quitance = () => {
-  // ✅ LANGUE UNIQUE — vient du Context
   const { t, langue } = useT();
 
-  // ✅ Locale pour formatage
   const locale = useMemo(() => {
     if (langue === 'en') return 'en-US';
     if (langue === 'mg') return 'fr-MG';
     return 'fr-FR';
   }, [langue]);
 
-  // États principaux
   const [quittances, setQuittances] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -36,10 +35,7 @@ const Quitance = () => {
   const [regions, setRegions] = useState([]);
   const [stats, setStats] = useState(null);
   const [quittanceSelectionnee, setQuittanceSelectionnee] = useState(null);
-  const [numeroCarnetDebut, setNumeroCarnetDebut] = useState('');
-  const [numeroCarnetFin, setNumeroCarnetFin] = useState('');
 
-  // États pour le PDF
   const [responsable, setResponsable] = useState('');
   const [lieuAgence, setLieuAgence] = useState('Antananarivo');
   const [dateDelivre, setDateDelivre] = useState(new Date().toLocaleDateString('fr-FR'));
@@ -48,12 +44,13 @@ const Quitance = () => {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [generationMessage, setGenerationMessage] = useState('');
 
+  const [printMode, setPrintMode] = useState('page');
+
   const navigate = useNavigate();
   const pdfOptionsRef = useRef(null);
 
-  const API_BASE = 'http://localhost:3001/api';
+  const API_BASE = `${API_URL}/api`;
 
-  // ✅ Mois traduits selon la langue
   const moisLabels = useMemo(() => {
     if (langue === 'en') {
       return ['January', 'February', 'March', 'April', 'May', 'June',
@@ -67,7 +64,6 @@ const Quitance = () => {
             'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
   }, [langue]);
 
-  // ✅ Labels de type client traduits
   const getTypeLabel = useCallback((type) => {
     const labels = {
       'HTL': t('Hôtel', 'Hotely', 'Hotel'),
@@ -81,7 +77,41 @@ const Quitance = () => {
     return labels[type] || type || '-';
   }, [t]);
 
-  // Récupérer les régions
+  // ============================================================
+  // HELPERS QUITTANCE
+  // ============================================================
+  const extraireNumeroQuittance = useCallback((q) => {
+    if (!q) return 0;
+    const candidats = [q.num_quitance, q.num_quitance_formate, q.quittance];
+    for (const c of candidats) {
+      if (c !== null && c !== undefined && c !== '') {
+        const n = parseInt(String(c).replace(/\D/g, ''), 10);
+        if (!isNaN(n) && n > 0) return n;
+      }
+    }
+    return 0;
+  }, []);
+
+  const formatQuittance = useCallback((num) => {
+    if (!num && num !== 0) return '';
+    const n = parseInt(String(num).replace(/\D/g, ''), 10);
+    if (isNaN(n) || n <= 0) return '';
+    return String(n).padStart(7, '0');
+  }, []);
+
+  const hasValue = (v) => {
+    if (v === null || v === undefined) return false;
+    if (typeof v === 'string') {
+      const trimmed = v.trim();
+      return trimmed !== '' && trimmed.toUpperCase() !== 'N/A';
+    }
+    if (typeof v === 'number') return v !== 0 && !isNaN(v);
+    return true;
+  };
+
+  // ============================================================
+  // FETCH RÉGIONS
+  // ============================================================
   useEffect(() => {
     const fetchRegions = async () => {
       try {
@@ -96,13 +126,14 @@ const Quitance = () => {
     fetchRegions();
   }, []);
 
-  // Récupérer les quittances
+  // ============================================================
+  // FETCH QUITTANCES
+  // ============================================================
   useEffect(() => {
     fetchQuittances();
     // eslint-disable-next-line
   }, [regionFilter]);
 
-  // Fermer le menu PDF au clic en dehors
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (pdfOptionsRef.current && !pdfOptionsRef.current.contains(event.target)) {
@@ -130,10 +161,6 @@ const Quitance = () => {
 
         if (quittancesData.length > 0) {
           setQuittanceSelectionnee(quittancesData[0]);
-          const premier = quittancesData[0]?.quittance || 0;
-          const dernier = quittancesData[quittancesData.length - 1]?.quittance || 0;
-          setNumeroCarnetDebut(String(premier).padStart(7, '0'));
-          setNumeroCarnetFin(String(dernier).padStart(7, '0'));
         }
 
         await fetchStats();
@@ -146,9 +173,9 @@ const Quitance = () => {
       if (err.response) {
         if (err.response.status === 404) {
           setError(t(
-            `Route API non trouvée (404). Vérifiez que ${API_BASE}/quitance/liste existe.`,
-            `Tsy hita ny route API (404). Hamarino raha misy ${API_BASE}/quitance/liste.`,
-            `API route not found (404). Check that ${API_BASE}/quitance/liste exists.`
+            `Route API non trouvée (404).`,
+            `Tsy hita ny route API (404).`,
+            `API route not found (404).`
           ));
         } else if (err.response.status === 500) {
           setError(`${t('Erreur serveur (500)', 'Olana amin\'ny serveur (500)', 'Server error (500)')}: ${err.response.data?.message || t('Erreur interne', 'Olana anatiny', 'Internal error')}`);
@@ -157,9 +184,9 @@ const Quitance = () => {
         }
       } else if (err.request) {
         setError(t(
-          'Impossible de contacter le serveur. Vérifiez que le serveur est en cours d\'exécution.',
-          'Tsy afaka mifandray amin\'ny serveur. Hamarino raha mandeha ny serveur.',
-          'Cannot reach server. Check that the server is running.'
+          'Impossible de contacter le serveur.',
+          'Tsy afaka mifandray amin\'ny serveur.',
+          'Cannot reach server.'
         ));
       } else {
         setError(`${t('Erreur', 'Olana', 'Error')}: ${err.message}`);
@@ -180,14 +207,7 @@ const Quitance = () => {
     }
   };
 
-  const handleBackToDashboard = () => {
-    navigate('/dashboard');
-  };
-
-  const formatQuittance = (num) => {
-    if (!num && num !== 0) return '';
-    return String(num).padStart(7, '0');
-  };
+  const handleBackToDashboard = () => navigate('/dashboard');
 
   const formatMontant = (montant) => {
     if (!montant && montant !== 0) return '0';
@@ -216,15 +236,15 @@ const Quitance = () => {
     return moisLabels[month - 1] || '';
   }, [moisLabels]);
 
-  // Filtrer les quittances
   const filteredQuittances = quittances.filter(q => {
     const search = searchTerm.toLowerCase();
+    const numero = extraireNumeroQuittance(q);
     return (
-      (q.quittance && String(q.quittance).includes(search)) ||
+      (numero && String(numero).includes(search)) ||
       (q.num_facture && q.num_facture.toLowerCase().includes(search)) ||
       (q.denomination && q.denomination.toLowerCase().includes(search)) ||
       (q.demandeur && q.demandeur.toLowerCase().includes(search)) ||
-      (q.region_usager && q.region_usager && q.region_usager.toLowerCase().includes(search)) ||
+      (q.region_usager && q.region_usager.toLowerCase().includes(search)) ||
       (q.ref_client_type && q.ref_client_type.toLowerCase().includes(search)) ||
       (q.ref_usager && String(q.ref_usager).includes(search))
     );
@@ -235,6 +255,25 @@ const Quitance = () => {
     (pageCourante - 1) * itemsParPage,
     pageCourante * itemsParPage
   );
+
+  // ============================================================
+  // ✅ BORNES DU CARNET — Basées sur LA PAGE COURANTE
+  //    Page 1 → 0000001 à 0000020
+  //    Page 2 → 0000021 à 0000040
+  //    Page 3 → 0000041 à 0000060
+  //    etc.
+  // ============================================================
+  const carnetDebutPage = useMemo(() => {
+    if (filteredQuittances.length === 0) return '';
+    const debut = (pageCourante - 1) * itemsParPage + 1;
+    return formatQuittance(debut);
+  }, [pageCourante, itemsParPage, filteredQuittances.length, formatQuittance]);
+
+  const carnetFinPage = useMemo(() => {
+    if (filteredQuittances.length === 0) return '';
+    const fin = Math.min(pageCourante * itemsParPage, filteredQuittances.length);
+    return formatQuittance(fin);
+  }, [pageCourante, itemsParPage, filteredQuittances.length, formatQuittance]);
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= totalPages) {
@@ -248,19 +287,24 @@ const Quitance = () => {
 
   const renderPageNumbers = () => {
     const numbers = [];
-    const total = Math.min(filteredQuittances.length, 200);
+    const total = Math.min(totalPages, 200);
     const start = Math.max(1, pageCourante - 5);
     const end = Math.min(total, pageCourante + 5);
-
     for (let i = start; i <= end; i++) {
       numbers.push(i);
     }
     return numbers;
   };
 
-  // Génération du PDF
+  // ============================================================
+  // GÉNÉRATION PDF
+  // ============================================================
   const handleGeneratePDF = () => {
-    if (filteredQuittances.length === 0) {
+    const itemsAPdf = printMode === 'page'
+      ? paginatedQuittances
+      : filteredQuittances;
+
+    if (itemsAPdf.length === 0) {
       setGenerationMessage(`⚠️ ${t('Aucune quittance à générer', 'Tsy misy taratasy hamoronana', 'No receipt to generate')}`);
       setTimeout(() => setGenerationMessage(''), 3000);
       return;
@@ -277,25 +321,22 @@ const Quitance = () => {
     setGenerationMessage(`🔄 ${t('Génération du PDF en cours...', 'Mamorona PDF...', 'Generating PDF...')}`);
 
     try {
-      const currentPageItems = paginatedQuittances;
-
       const regionLabel = regionFilter === 'toutes'
         ? t('Toutes les régions', 'Ny faritra rehetra', 'All regions')
         : regionFilter;
 
       const pdfOptions = {
-        carnetDebut: numeroCarnetDebut || '0000000',
-        carnetFin: numeroCarnetFin || '0000000',
         responsable: responsable.trim(),
         lieu: lieuAgence || 'Antananarivo',
         region: regionLabel,
         dateDelivre: dateDelivre || new Date().toLocaleDateString(locale),
         dateRetour: dateRetour || '',
-        pageCourante: pageCourante,
         langue: langue,
+        quittancesParPage: QUITTANCES_PAR_PAGE_PDF,
+        pageDepart: printMode === 'page' ? pageCourante : 1,
       };
 
-      const result = generateQuitancePDF(currentPageItems, pdfOptions);
+      const result = generateQuitancePDF(itemsAPdf, pdfOptions);
 
       if (result) {
         setGenerationMessage(`✅ ${t('PDF généré avec succès !', 'Vita ny PDF !', 'PDF generated successfully!')}`);
@@ -313,7 +354,9 @@ const Quitance = () => {
     }
   };
 
-  // Rendu du header
+  // ============================================================
+  // HEADER
+  // ============================================================
   const renderHeader = () => (
     <div className="quittance-header-professionnel">
       <div className="header-top">
@@ -348,11 +391,49 @@ const Quitance = () => {
         </div>
       </div>
 
-      {/* Options PDF */}
       {showPDFOptions && (
         <div className="pdf-options-dropdown" ref={pdfOptionsRef}>
           <div className="pdf-options-content">
             <h4><FileText size={16} /> {t('Options de génération PDF', 'Safidy famokarana PDF', 'PDF generation options')}</h4>
+
+            <div className="pdf-option-group">
+              <label>{t('Plage à imprimer', 'Halavana atao pirinty', 'Print range')}</label>
+              <div className="pdf-radio-group">
+                <label className="pdf-radio">
+                  <input
+                    type="radio"
+                    name="printMode"
+                    value="page"
+                    checked={printMode === 'page'}
+                    onChange={() => setPrintMode('page')}
+                  />
+                  <span>
+                    {t(
+                      `Page courante (${paginatedQuittances.length} quittances)`,
+                      `Pejy misy ankehitriny (${paginatedQuittances.length} taratasy)`,
+                      `Current page (${paginatedQuittances.length} receipts)`
+                    )}
+                  </span>
+                </label>
+                <label className="pdf-radio">
+                  <input
+                    type="radio"
+                    name="printMode"
+                    value="all"
+                    checked={printMode === 'all'}
+                    onChange={() => setPrintMode('all')}
+                  />
+                  <span>
+                    {t(
+                      `Toutes (${filteredQuittances.length} quittances)`,
+                      `Rehetra (${filteredQuittances.length} taratasy)`,
+                      `All (${filteredQuittances.length} receipts)`
+                    )}
+                  </span>
+                </label>
+              </div>
+            </div>
+
             <div className="pdf-options-grid">
               <div className="pdf-option-group">
                 <label>{t('Responsable', 'Tompon\'andraikitra', 'Manager')} *</label>
@@ -420,12 +501,22 @@ const Quitance = () => {
         </div>
       )}
 
-      {/* Informations du carnet */}
+      {/* ============================================================
+          ✅ NUMÉRO DE CARNET — Basé sur LA PAGE COURANTE
+          Page 1 → 0000001 à 0000020
+          Page 2 → 0000021 à 0000040
+          etc.
+         ============================================================ */}
       <div className="carnet-info">
         <div className="carnet-info-item">
           <BookOpen size={16} />
           <span className="carnet-label">{t('Numéro de carnet', 'Laharana carnet', 'Booklet number')} :</span>
-          <span className="carnet-value">{numeroCarnetDebut || '---'} {t('à', 'ka hatramin\'ny', 'to')} {numeroCarnetFin || '---'}</span>
+          <span className="carnet-value">
+            {carnetDebutPage || '---'} {t('à', 'ka hatramin\'ny', 'to')} {carnetFinPage || '---'}
+          </span>
+          <span className="carnet-page-badge">
+            {t('Page', 'Pejy', 'Page')} {pageCourante} / {totalPages || 1}
+          </span>
         </div>
         <div className="carnet-info-item">
           <MapPin size={16} />
@@ -486,7 +577,9 @@ const Quitance = () => {
     </div>
   );
 
-  // Rendu de la vue historique
+  // ============================================================
+  // HISTORIQUE
+  // ============================================================
   const renderHistorique = () => (
     <div className="quittance-historique">
       <div className="historique-table-wrapper">
@@ -528,6 +621,9 @@ const Quitance = () => {
                 const typeLabel = getTypeLabel(quittance.ref_client_type);
                 const region = quittance.region_usager || '-';
 
+                const numQuittance = extraireNumeroQuittance(quittance);
+                const numQuittanceFormate = formatQuittance(numQuittance);
+
                 return (
                   <tr
                     key={quittance.id}
@@ -535,7 +631,9 @@ const Quitance = () => {
                     onClick={() => handleSelectQuittance(quittance)}
                   >
                     <td className="col-num">{String(num).padStart(3, '0')}</td>
-                    <td className="col-quittance">{formatQuittance(quittance.quittance)}</td>
+                    <td className="col-quittance">
+                      {numQuittanceFormate || '-'}
+                    </td>
                     <td className="col-facture-num">{quittance.num_facture || '-'}</td>
                     <td className="col-type-client">{typeLabel}</td>
                     <td className="col-client">{denomination}</td>
@@ -550,7 +648,6 @@ const Quitance = () => {
         </table>
       </div>
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="excel-pagination">
           <button className="page-btn" onClick={() => handlePageChange(1)} disabled={pageCourante === 1}>
@@ -580,35 +677,73 @@ const Quitance = () => {
         </div>
       )}
 
-      {/* Bouton Retour Dashboard en bas */}
       <div className="historique-footer">
         <button className="btn-back-dashboard-bottom" onClick={handleBackToDashboard}>
           <ArrowLeft size={18} />
           <Home size={18} />
-          <span>{t('Retour au Dashboard', 'Hiverina amin\'ny fandraisana', 'Back to Dashboard')}</span>
+          <span>{t('Accueil', 'Hiverina amin\'ny fandraisana', 'Back to Dashboard')}</span>
         </button>
       </div>
     </div>
   );
 
-  // Rendu du détail de la quittance sélectionnée
+  // ============================================================
+  // DÉTAIL — SECTIONS CONDITIONNELLES
+  // ============================================================
   const renderQuittanceDetail = () => {
     if (!quittanceSelectionnee) return null;
 
     const q = quittanceSelectionnee;
     const typeLabel = getTypeLabel(q.ref_client_type);
+    const numQ = extraireNumeroQuittance(q);
+    const numQFormate = formatQuittance(numQ);
+
+    const hasFactureInfos =
+      hasValue(q.montant_mensuel) ||
+      hasValue(q.frais_dossier) ||
+      (q.is_retard && hasValue(q.montant_retard)) ||
+      hasValue(q.taux) ||
+      hasValue(q.uniter);
+
+    const hasPeriodeInfos =
+      hasValue(q.mois_facture) ||
+      hasValue(q.mois_groupes) ||
+      hasValue(q.type_groupe);
+
+    const hasRepresentantInfos =
+      hasValue(q.representant_nom) ||
+      hasValue(q.representant_fonction) ||
+      hasValue(q.representant_adresse) ||
+      hasValue(q.representant_tel) ||
+      hasValue(q.representant_cin);
+
+    const hasComplementairesInfos =
+      hasValue(q.description_personnalisee) ||
+      hasValue(q.personne_recu) ||
+      hasValue(q.suffixe) ||
+      (q.quittance_validee !== undefined && q.quittance_validee !== null);
+
+    const hasClientInfos =
+      hasValue(q.denomination) ||
+      hasValue(q.demandeur) ||
+      hasValue(q.siege) ||
+      hasValue(q.adresse) ||
+      hasValue(q.telephone) ||
+      hasValue(q.email) ||
+      hasValue(q.nif) ||
+      hasValue(q.stat) ||
+      hasValue(q.activite);
 
     return (
       <div className="quittance-detail-excel">
         <div className="detail-header">
-          <h3><Tag size={16} /> {t('QUITTANCE N°', 'TARATASY N°', 'RECEIPT N°')} {formatQuittance(q.quittance)}</h3>
+          <h3><Tag size={16} /> {t('QUITTANCE N°', 'TARATASY N°', 'RECEIPT N°')} {numQFormate || '-'}</h3>
           <button className="btn-close-detail" onClick={() => setQuittanceSelectionnee(null)}>
             <X size={18} />
           </button>
         </div>
 
         <div className="detail-body">
-          {/* Informations de la quittance */}
           <div className="detail-section">
             <div className="detail-section-title">
               <Tag size={14} /> {t('INFORMATIONS QUITTANCE', 'FAMPAHALALANA TARATASY', 'RECEIPT INFORMATION')}
@@ -616,43 +751,57 @@ const Quitance = () => {
 
             <div className="detail-row">
               <span className="detail-label"><Tag size={14} /> {t('Numéro quittance', 'Laharana taratasy', 'Receipt number')}:</span>
-              <span className="detail-value">{formatQuittance(q.quittance)}</span>
+              <span className="detail-value">{numQFormate || '-'}</span>
             </div>
-            <div className="detail-row">
-              <span className="detail-label"><FileText size={14} /> {t('Numéro facture', 'Laharana faktiora', 'Invoice number')}:</span>
-              <span className="detail-value">{q.num_facture || '-'}</span>
-            </div>
-            <div className="detail-row">
-              <span className="detail-label"><User size={14} /> {t('Type client', 'Karazana mpanjifa', 'Client type')}:</span>
-              <span className="detail-value">{typeLabel}</span>
-            </div>
-            <div className="detail-row">
-              <span className="detail-label"><Hash size={14} /> {t('Réf client', 'Réf mpanjifa', 'Client ref')}:</span>
-              <span className="detail-value">{q.ref_client_type || '-'}</span>
-            </div>
-            <div className="detail-row">
-              <span className="detail-label"><Hash size={14} /> {t('Réf usager', 'Réf mpampiasa', 'User ref')}:</span>
-              <span className="detail-value">{q.ref_usager ? String(q.ref_usager).padStart(3, '0') : '-'}</span>
-            </div>
-            <div className="detail-row">
-              <span className="detail-label"><DollarSign size={14} /> {t('Montant', 'Vola', 'Amount')}:</span>
-              <span className="detail-value montant">{formatMontant(q.soit_total)} Ar</span>
-            </div>
-            <div className="detail-row">
-              <span className="detail-label"><MapPin size={14} /> {t('Région', 'Faritra', 'Region')}:</span>
-              <span className="detail-value">{q.region_usager || '-'}</span>
-            </div>
-            <div className="detail-row">
-              <span className="detail-label"><Calendar size={14} /> {t('Date création', 'Daty famoronana', 'Creation date')}:</span>
-              <span className="detail-value">{formatDate(q.date_ajout)}</span>
-            </div>
-            {q.type_facture && (
+            {hasValue(q.num_facture) && (
+              <div className="detail-row">
+                <span className="detail-label"><FileText size={14} /> {t('Numéro facture', 'Laharana faktiora', 'Invoice number')}:</span>
+                <span className="detail-value">{q.num_facture}</span>
+              </div>
+            )}
+            {hasValue(q.ref_client_type) && (
+              <div className="detail-row">
+                <span className="detail-label"><User size={14} /> {t('Type client', 'Karazana mpanjifa', 'Client type')}:</span>
+                <span className="detail-value">{typeLabel}</span>
+              </div>
+            )}
+            {hasValue(q.ref_client_type) && (
+              <div className="detail-row">
+                <span className="detail-label"><Hash size={14} /> {t('Réf client', 'Réf mpanjifa', 'Client ref')}:</span>
+                <span className="detail-value">{q.ref_client_type}</span>
+              </div>
+            )}
+            {hasValue(q.ref_usager) && (
+              <div className="detail-row">
+                <span className="detail-label"><Hash size={14} /> {t('Réf usager', 'Réf mpampiasa', 'User ref')}:</span>
+                <span className="detail-value">{String(q.ref_usager).padStart(3, '0')}</span>
+              </div>
+            )}
+            {hasValue(q.soit_total) && (
+              <div className="detail-row">
+                <span className="detail-label"><DollarSign size={14} /> {t('Montant', 'Vola', 'Amount')}:</span>
+                <span className="detail-value montant">{formatMontant(q.soit_total)} Ar</span>
+              </div>
+            )}
+            {hasValue(q.region_usager) && (
+              <div className="detail-row">
+                <span className="detail-label"><MapPin size={14} /> {t('Région', 'Faritra', 'Region')}:</span>
+                <span className="detail-value">{q.region_usager}</span>
+              </div>
+            )}
+            {hasValue(q.date_ajout) && (
+              <div className="detail-row">
+                <span className="detail-label"><Calendar size={14} /> {t('Date création', 'Daty famoronana', 'Creation date')}:</span>
+                <span className="detail-value">{formatDate(q.date_ajout)}</span>
+              </div>
+            )}
+            {hasValue(q.type_facture) && (
               <div className="detail-row">
                 <span className="detail-label"><FileText size={14} /> {t('Type facture', 'Karazana faktiora', 'Invoice type')}:</span>
                 <span className="detail-value">{q.type_facture}</span>
               </div>
             )}
-            {q.num_facture_type && (
+            {hasValue(q.num_facture_type) && (
               <div className="detail-row">
                 <span className="detail-label"><Hash size={14} /> {t('Type facture n°', 'Karazana faktiora n°', 'Invoice type n°')}:</span>
                 <span className="detail-value">{q.num_facture_type}</span>
@@ -660,133 +809,129 @@ const Quitance = () => {
             )}
           </div>
 
-          {/* Informations du client */}
-          <div className="detail-section">
-            <div className="detail-section-title">
-              <User size={14} /> {t('INFORMATIONS CLIENT', 'FAMPAHALALANA MPANJIFA', 'CLIENT INFORMATION')}
+          {hasClientInfos && (
+            <div className="detail-section">
+              <div className="detail-section-title">
+                <User size={14} /> {t('INFORMATIONS CLIENT', 'FAMPAHALALANA MPANJIFA', 'CLIENT INFORMATION')}
+              </div>
+
+              {hasValue(q.denomination) && (
+                <div className="detail-row">
+                  <span className="detail-label"><User size={14} /> {t('Dénomination', 'Anarana', 'Name')}:</span>
+                  <span className="detail-value">{q.denomination}</span>
+                </div>
+              )}
+              {!hasValue(q.denomination) && hasValue(q.demandeur) && (
+                <div className="detail-row">
+                  <span className="detail-label"><User size={14} /> {t('Demandeur', 'Mpangataka', 'Applicant')}:</span>
+                  <span className="detail-value">{q.demandeur}</span>
+                </div>
+              )}
+              {hasValue(q.siege) && (
+                <div className="detail-row">
+                  <span className="detail-label"><Building size={14} /> {t('Siège', 'Foibe', 'Head office')}:</span>
+                  <span className="detail-value">{q.siege}</span>
+                </div>
+              )}
+              {hasValue(q.adresse) && (
+                <div className="detail-row">
+                  <span className="detail-label"><MapPin size={14} /> {t('Adresse', 'Adiresy', 'Address')}:</span>
+                  <span className="detail-value">{q.adresse}</span>
+                </div>
+              )}
+              {hasValue(q.telephone) && (
+                <div className="detail-row">
+                  <span className="detail-label"><Phone size={14} /> {t('Téléphone', 'Finday', 'Phone')}:</span>
+                  <span className="detail-value">{q.telephone}</span>
+                </div>
+              )}
+              {hasValue(q.email) && (
+                <div className="detail-row">
+                  <span className="detail-label"><Mail size={14} /> Email:</span>
+                  <span className="detail-value">{q.email}</span>
+                </div>
+              )}
+              {hasValue(q.nif) && (
+                <div className="detail-row">
+                  <span className="detail-label"><Key size={14} /> NIF:</span>
+                  <span className="detail-value">{q.nif}</span>
+                </div>
+              )}
+              {hasValue(q.stat) && (
+                <div className="detail-row">
+                  <span className="detail-label"><FileCheck size={14} /> STAT:</span>
+                  <span className="detail-value">{q.stat}</span>
+                </div>
+              )}
+              {hasValue(q.activite) && (
+                <div className="detail-row">
+                  <span className="detail-label"><Briefcase size={14} /> {t('Activité', 'Asa', 'Activity')}:</span>
+                  <span className="detail-value">{q.activite}</span>
+                </div>
+              )}
             </div>
+          )}
 
-            <div className="detail-row">
-              <span className="detail-label"><User size={14} /> {t('Dénomination', 'Anarana', 'Name')}:</span>
-              <span className="detail-value">{q.denomination || q.demandeur || '-'}</span>
+          {hasFactureInfos && (
+            <div className="detail-section">
+              <div className="detail-section-title">
+                <FileText size={14} /> {t('INFORMATIONS FACTURE', 'FAMPAHALALANA FAKTIORA', 'INVOICE INFORMATION')}
+              </div>
+
+              {hasValue(q.montant_mensuel) && (
+                <div className="detail-row">
+                  <span className="detail-label"><DollarSign size={14} /> {t('Montant mensuel', 'Vola isam-bolana', 'Monthly amount')}:</span>
+                  <span className="detail-value">{formatMontant(q.montant_mensuel)} Ar</span>
+                </div>
+              )}
+              {hasValue(q.frais_dossier) && (
+                <div className="detail-row">
+                  <span className="detail-label"><DollarSign size={14} /> {t('Frais de dossier', 'Saram-pandraharahana', 'File fees')}:</span>
+                  <span className="detail-value">{formatMontant(q.frais_dossier)} Ar</span>
+                </div>
+              )}
+              {q.is_retard && hasValue(q.montant_retard) && (
+                <div className="detail-row">
+                  <span className="detail-label"><Clock size={14} /> {t('Montant retard', 'Vola tara', 'Late amount')}:</span>
+                  <span className="detail-value">{formatMontant(q.montant_retard)} Ar</span>
+                </div>
+              )}
+              {hasValue(q.taux) && (
+                <div className="detail-row">
+                  <span className="detail-label"><Percent size={14} /> {t('Taux', 'Taha', 'Rate')}:</span>
+                  <span className="detail-value">{q.taux}%</span>
+                </div>
+              )}
+              {hasValue(q.uniter) && (
+                <div className="detail-row">
+                  <span className="detail-label"><Hash size={14} /> Uniter:</span>
+                  <span className="detail-value">{q.uniter}</span>
+                </div>
+              )}
             </div>
+          )}
 
-            {q.siege && (
-              <div className="detail-row">
-                <span className="detail-label"><Building size={14} /> {t('Siège', 'Foibe', 'Head office')}:</span>
-                <span className="detail-value">{q.siege}</span>
-              </div>
-            )}
-
-            {q.adresse && (
-              <div className="detail-row">
-                <span className="detail-label"><MapPin size={14} /> {t('Adresse', 'Adiresy', 'Address')}:</span>
-                <span className="detail-value">{q.adresse}</span>
-              </div>
-            )}
-
-            {q.telephone && (
-              <div className="detail-row">
-                <span className="detail-label"><Phone size={14} /> {t('Téléphone', 'Finday', 'Phone')}:</span>
-                <span className="detail-value">{q.telephone}</span>
-              </div>
-            )}
-
-            {q.email && (
-              <div className="detail-row">
-                <span className="detail-label"><Mail size={14} /> Email:</span>
-                <span className="detail-value">{q.email}</span>
-              </div>
-            )}
-
-            {q.nif && (
-              <div className="detail-row">
-                <span className="detail-label"><Key size={14} /> NIF:</span>
-                <span className="detail-value">{q.nif}</span>
-              </div>
-            )}
-
-            {q.stat && (
-              <div className="detail-row">
-                <span className="detail-label"><FileCheck size={14} /> STAT:</span>
-                <span className="detail-value">{q.stat}</span>
-              </div>
-            )}
-
-            {q.activite && (
-              <div className="detail-row">
-                <span className="detail-label"><Briefcase size={14} /> {t('Activité', 'Asa', 'Activity')}:</span>
-                <span className="detail-value">{q.activite}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Informations de la facture */}
-          <div className="detail-section">
-            <div className="detail-section-title">
-              <FileText size={14} /> {t('INFORMATIONS FACTURE', 'FAMPAHALALANA FAKTIORA', 'INVOICE INFORMATION')}
-            </div>
-
-            {q.montant_mensuel && (
-              <div className="detail-row">
-                <span className="detail-label"><DollarSign size={14} /> {t('Montant mensuel', 'Vola isam-bolana', 'Monthly amount')}:</span>
-                <span className="detail-value">{formatMontant(q.montant_mensuel)} Ar</span>
-              </div>
-            )}
-
-            {q.frais_dossier && (
-              <div className="detail-row">
-                <span className="detail-label"><DollarSign size={14} /> {t('Frais de dossier', 'Saram-pandraharahana', 'File fees')}:</span>
-                <span className="detail-value">{formatMontant(q.frais_dossier)} Ar</span>
-              </div>
-            )}
-
-            {q.montant_retard && q.is_retard && (
-              <div className="detail-row">
-                <span className="detail-label"><Clock size={14} /> {t('Montant retard', 'Vola tara', 'Late amount')}:</span>
-                <span className="detail-value">{formatMontant(q.montant_retard)} Ar</span>
-              </div>
-            )}
-
-            {q.taux && (
-              <div className="detail-row">
-                <span className="detail-label"><Percent size={14} /> {t('Taux', 'Taha', 'Rate')}:</span>
-                <span className="detail-value">{q.taux}%</span>
-              </div>
-            )}
-
-            {q.uniter && (
-              <div className="detail-row">
-                <span className="detail-label"><Hash size={14} /> Uniter:</span>
-                <span className="detail-value">{q.uniter}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Informations de période */}
-          {(q.mois_facture || q.annee_facture || q.mois_groupes) && (
+          {hasPeriodeInfos && (
             <div className="detail-section">
               <div className="detail-section-title">
                 <Calendar size={14} /> {t('PÉRIODE', 'FE-POTOANA', 'PERIOD')}
               </div>
 
-              {q.mois_facture && (
+              {hasValue(q.mois_facture) && (
                 <div className="detail-row">
                   <span className="detail-label"><Calendar size={14} /> {t('Mois', 'Volana', 'Month')}:</span>
                   <span className="detail-value">{getMonthName(q.mois_facture)} {q.annee_facture || ''}</span>
                 </div>
               )}
-
-              {q.mois_groupes && (
+              {hasValue(q.mois_groupes) && (
                 <div className="detail-row">
                   <span className="detail-label"><Calendar size={14} /> {t('Mois groupés', 'Volana mitambatra', 'Grouped months')}:</span>
                   <span className="detail-value">
-                    {q.mois_groupes.split(',').map(m => getMonthName(parseInt(m))).join(', ')}
+                    {String(q.mois_groupes).split(',').map(m => getMonthName(parseInt(m))).join(', ')}
                   </span>
                 </div>
               )}
-
-              {q.type_groupe && (
+              {hasValue(q.type_groupe) && (
                 <div className="detail-row">
                   <span className="detail-label"><Info size={14} /> {t('Type groupe', 'Karazana vondrona', 'Group type')}:</span>
                   <span className="detail-value">{q.type_groupe}</span>
@@ -795,42 +940,37 @@ const Quitance = () => {
             </div>
           )}
 
-          {/* Informations du représentant */}
-          {(q.representant_nom || q.representant_adresse || q.representant_tel || q.representant_cin || q.representant_fonction) && (
+          {hasRepresentantInfos && (
             <div className="detail-section">
               <div className="detail-section-title">
                 <Briefcase size={14} /> {t('REPRÉSENTANT', 'MPISOLO TENA', 'REPRESENTATIVE')}
               </div>
 
-              {q.representant_nom && (
+              {hasValue(q.representant_nom) && (
                 <div className="detail-row">
                   <span className="detail-label"><User size={14} /> {t('Nom', 'Anarana', 'Name')}:</span>
                   <span className="detail-value">{q.representant_nom}</span>
                 </div>
               )}
-
-              {q.representant_fonction && (
+              {hasValue(q.representant_fonction) && (
                 <div className="detail-row">
                   <span className="detail-label"><Briefcase size={14} /> {t('Fonction', 'Asa', 'Position')}:</span>
                   <span className="detail-value">{q.representant_fonction}</span>
                 </div>
               )}
-
-              {q.representant_adresse && (
+              {hasValue(q.representant_adresse) && (
                 <div className="detail-row">
                   <span className="detail-label"><MapPin size={14} /> {t('Adresse', 'Adiresy', 'Address')}:</span>
                   <span className="detail-value">{q.representant_adresse}</span>
                 </div>
               )}
-
-              {q.representant_tel && (
+              {hasValue(q.representant_tel) && (
                 <div className="detail-row">
                   <span className="detail-label"><Phone size={14} /> {t('Téléphone', 'Finday', 'Phone')}:</span>
                   <span className="detail-value">{q.representant_tel}</span>
                 </div>
               )}
-
-              {q.representant_cin && (
+              {hasValue(q.representant_cin) && (
                 <div className="detail-row">
                   <span className="detail-label"><Key size={14} /> CIN:</span>
                   <span className="detail-value">{q.representant_cin}</span>
@@ -839,40 +979,38 @@ const Quitance = () => {
             </div>
           )}
 
-          {/* Informations complémentaires */}
-          {(q.description_personnalisee || q.personne_recu || q.uniter || q.suffixe || q.quittance_validee !== undefined) && (
+          {hasComplementairesInfos && (
             <div className="detail-section">
               <div className="detail-section-title">
                 <Info size={14} /> {t('INFORMATIONS COMPLÉMENTAIRES', 'FAMPAHALALANA FANAMPINY', 'ADDITIONAL INFORMATION')}
               </div>
 
-              {q.description_personnalisee && (
+              {hasValue(q.description_personnalisee) && (
                 <div className="detail-row">
                   <span className="detail-label"><FileText size={14} /> {t('Description', 'Fanazavana', 'Description')}:</span>
                   <span className="detail-value">{q.description_personnalisee}</span>
                 </div>
               )}
-
-              {q.personne_recu && (
+              {hasValue(q.personne_recu) && (
                 <div className="detail-row">
                   <span className="detail-label"><UserPlus size={14} /> {t('Reçu par', 'Voaray avy amin\'ny', 'Received by')}:</span>
                   <span className="detail-value">{q.personne_recu}</span>
                 </div>
               )}
-
-              {q.suffixe && (
+              {hasValue(q.suffixe) && (
                 <div className="detail-row">
                   <span className="detail-label"><Hash size={14} /> {t('Suffixe', 'Tohiny', 'Suffix')}:</span>
                   <span className="detail-value">{q.suffixe}</span>
                 </div>
               )}
-
-              {q.quittance_validee !== undefined && (
+              {q.quittance_validee !== undefined && q.quittance_validee !== null && (
                 <div className="detail-row">
                   <span className="detail-label"><CheckCircle size={14} /> {t('Quittance validée', 'Taratasy voamarina', 'Receipt validated')}:</span>
-                  <span className="detail-value">{q.quittance_validee
-                    ? `✅ ${t('Oui', 'Eny', 'Yes')}`
-                    : `❌ ${t('Non', 'Tsia', 'No')}`}</span>
+                  <span className="detail-value">
+                    {q.quittance_validee
+                      ? `✅ ${t('Oui', 'Eny', 'Yes')}`
+                      : `❌ ${t('Non', 'Tsia', 'No')}`}
+                  </span>
                 </div>
               )}
             </div>

@@ -44,6 +44,23 @@ const getDAFName = async () => {
 };
 
 // ============================================================
+// 1.b VÉRIFIER SI UNE COLONNE EXISTE DANS UNE TABLE
+// ============================================================
+const columnExists = async (tableName, columnName) => {
+  try {
+    const result = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.columns 
+        WHERE table_name = $1 AND column_name = $2
+      )
+    `, [tableName, columnName]);
+    return result.rows[0].exists;
+  } catch {
+    return false;
+  }
+};
+
+// ============================================================
 // 2. RÉCUPÉRER TOUTES LES FACTURES
 // ============================================================
 router.get('/recfacture/factures', async (req, res) => {
@@ -67,6 +84,15 @@ router.get('/recfacture/factures', async (req, res) => {
       });
     }
 
+    // Vérifier si la table quitance_usager existe
+    const quittanceTableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'quitance_usager'
+      )
+    `);
+    const hasQuittanceTable = quittanceTableCheck.rows[0].exists;
+
     // Vérifier si les colonnes de renouvellement existent
     const renouvColCheck = await pool.query(`
       SELECT column_name 
@@ -77,58 +103,129 @@ router.get('/recfacture/factures', async (req, res) => {
     const hasRenouvCols = renouvColCheck.rows.length === 2;
 
     const renouvSelect = hasRenouvCols 
-      ? ', is_renouvellement, frais_renouvellement' 
+      ? ', f.is_renouvellement, f.frais_renouvellement' 
       : ', false as is_renouvellement, 0 as frais_renouvellement';
 
-    const result = await pool.query(`
-      SELECT 
-        id, 
-        ref_omda, 
-        num_facture, 
-        num_facture_type,
-        ref_client_type, 
-        ref_usager, 
-        type_facture,
-        region_usager, 
-        date_ajout, 
-        denomination,
-        demandeur, 
-        telephone, 
-        email,
-        adresse,
-        montant_mensuel,
-        frais_dossier, 
-        montant_retard, 
-        is_retard,
-        soit_total, 
-        uniter, 
-        statut, 
-        personne_recu,
-        quittance, 
-        quittance_validee,
-        mois_facture, 
-        annee_facture, 
-        mois_groupes, 
-        type_groupe,
-        suffixe, 
-        description_personnalisee,
-        representant_nom,
-        representant_adresse,
-        representant_tel,
-        representant_cin,
-        representant_fonction,
-        activite,
-        siege,
-        nif,
-        stat,
-        taux,
-        created_at, 
-        created_by,
-        updated_at
-        ${renouvSelect}
-      FROM facture_usager 
-      ORDER BY created_at DESC
-    `);
+    // Vérifier les colonnes optionnelles
+    const hasSuffixe = await columnExists('facture_usager', 'suffixe');
+    const hasDescPerso = await columnExists('facture_usager', 'description_personnalisee');
+    const hasMoisGroupes = await columnExists('facture_usager', 'mois_groupes');
+    const hasTypeGroupe = await columnExists('facture_usager', 'type_groupe');
+    const hasNumFactureType = await columnExists('facture_usager', 'num_facture_type');
+
+    const optionalSelect = [
+      hasNumFactureType ? 'f.num_facture_type' : "'A' as num_facture_type",
+      hasSuffixe ? 'f.suffixe' : "'' as suffixe",
+      hasDescPerso ? 'f.description_personnalisee' : 'NULL as description_personnalisee',
+      hasMoisGroupes ? 'f.mois_groupes' : 'NULL as mois_groupes',
+      hasTypeGroupe ? 'f.type_groupe' : "'A' as type_groupe",
+    ].join(', ');
+
+    // ✅ Construction du SELECT avec JOIN quitance_usager
+    let query;
+    if (hasQuittanceTable) {
+      query = `
+        SELECT 
+          f.id, 
+          f.ref_omda, 
+          f.num_facture, 
+          ${optionalSelect},
+          f.ref_client_type, 
+          f.ref_usager, 
+          f.type_facture,
+          f.region_usager, 
+          f.date_ajout, 
+          f.denomination,
+          f.demandeur, 
+          f.telephone, 
+          f.email,
+          f.adresse,
+          f.montant_mensuel,
+          f.frais_dossier, 
+          f.montant_retard, 
+          f.is_retard,
+          f.soit_total, 
+          f.uniter, 
+          f.statut, 
+          f.personne_recu,
+          f.mois_facture, 
+          f.annee_facture, 
+          f.suffixe,
+          f.description_personnalisee,
+          f.representant_nom,
+          f.representant_adresse,
+          f.representant_tel,
+          f.representant_cin,
+          f.representant_fonction,
+          f.activite,
+          f.siege,
+          f.nif,
+          f.stat,
+          f.taux,
+          f.created_at, 
+          f.created_by,
+          f.updated_at,
+          q.num_quitance,
+          q.num_quitance_formate AS quittance,
+          q.quittance_validee
+          ${renouvSelect}
+        FROM facture_usager f
+        LEFT JOIN quitance_usager q ON q.id_facture = f.id
+        ORDER BY f.created_at DESC
+      `;
+    } else {
+      // Fallback sans table quitance_usager
+      query = `
+        SELECT 
+          f.id, 
+          f.ref_omda, 
+          f.num_facture, 
+          ${optionalSelect},
+          f.ref_client_type, 
+          f.ref_usager, 
+          f.type_facture,
+          f.region_usager, 
+          f.date_ajout, 
+          f.denomination,
+          f.demandeur, 
+          f.telephone, 
+          f.email,
+          f.adresse,
+          f.montant_mensuel,
+          f.frais_dossier, 
+          f.montant_retard, 
+          f.is_retard,
+          f.soit_total, 
+          f.uniter, 
+          f.statut, 
+          f.personne_recu,
+          f.mois_facture, 
+          f.annee_facture, 
+          f.suffixe,
+          f.description_personnalisee,
+          f.representant_nom,
+          f.representant_adresse,
+          f.representant_tel,
+          f.representant_cin,
+          f.representant_fonction,
+          f.activite,
+          f.siege,
+          f.nif,
+          f.stat,
+          f.taux,
+          f.created_at, 
+          f.created_by,
+          f.updated_at,
+          NULL as num_quitance,
+          NULL as quittance,
+          NULL as quittance_validee
+          ${renouvSelect}
+        FROM facture_usager f
+        ORDER BY f.created_at DESC
+      `;
+    }
+
+    const result = await pool.query(query);
 
     console.log(`✅ ${result.rows.length} factures récupérées`);
 
@@ -193,7 +290,11 @@ router.get('/recfacture/factures/:id', async (req, res) => {
       : ', false as is_renouvellement, 0 as frais_renouvellement';
 
     const result = await pool.query(
-      `SELECT * ${renouvSelect} FROM facture_usager WHERE id = $1`,
+      `SELECT f.* ${renouvSelect},
+              q.num_quitance, q.num_quitance_formate AS quittance, q.quittance_validee
+       FROM facture_usager f
+       LEFT JOIN quitance_usager q ON q.id_facture = f.id
+       WHERE f.id = $1`,
       [id]
     );
 
@@ -242,7 +343,7 @@ router.get('/recfacture/quittance/last', async (req, res) => {
     const tableCheck = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
-        WHERE table_name = 'facture_usager'
+        WHERE table_name = 'quitance_usager'
       )
     `);
 
@@ -255,9 +356,9 @@ router.get('/recfacture/quittance/last', async (req, res) => {
     }
 
     const result = await pool.query(`
-      SELECT COALESCE(MAX(quittance), 0) as max_quittance 
-      FROM facture_usager 
-      WHERE quittance IS NOT NULL AND quittance > 0
+      SELECT COALESCE(MAX(num_quitance), 0) as max_quittance 
+      FROM quitance_usager 
+      WHERE num_quitance IS NOT NULL AND num_quitance > 0
     `);
 
     const lastNum = parseInt(result.rows[0].max_quittance) || 0;
@@ -288,11 +389,12 @@ router.post('/recfacture/quittance/repair', async (req, res) => {
     console.log('🔧 RÉPARATION DES QUITTANCES...');
 
     const factures = await pool.query(`
-      SELECT id, num_facture, num_facture_type, ref_client_type, 
-             quittance, created_at, type_groupe, suffixe,
-             mois_facture, annee_facture
-      FROM facture_usager 
-      ORDER BY created_at ASC, id ASC
+      SELECT f.id, f.num_facture, f.num_facture_type, f.ref_client_type, 
+             q.num_quitance AS quittance, f.created_at, f.type_groupe, f.suffixe,
+             f.mois_facture, f.annee_facture
+      FROM facture_usager f
+      LEFT JOIN quitance_usager q ON q.id_facture = f.id
+      ORDER BY f.created_at ASC, f.id ASC
     `);
 
     if (factures.rows.length === 0) {
@@ -337,12 +439,28 @@ router.post('/recfacture/quittance/repair', async (req, res) => {
       }
 
       try {
-        await pool.query(
-          `UPDATE facture_usager 
-           SET quittance = $1, updated_at = CURRENT_TIMESTAMP 
-           WHERE id = $2`,
-          [newQuittance, facture.id]
+        const numeroStr = String(newQuittance).padStart(7, '0');
+        
+        // Mettre à jour ou insérer dans quitance_usager
+        const existingQ = await pool.query(
+          `SELECT id FROM quitance_usager WHERE id_facture = $1`,
+          [facture.id]
         );
+
+        if (existingQ.rows.length > 0) {
+          await pool.query(
+            `UPDATE quitance_usager 
+             SET num_quitance = $1, num_quitance_formate = $2, updated_at = CURRENT_TIMESTAMP 
+             WHERE id_facture = $3`,
+            [newQuittance, numeroStr, facture.id]
+          );
+        } else {
+          await pool.query(
+            `INSERT INTO quitance_usager (id_facture, num_quitance, num_quitance_formate, longueur_format, quittance_validee)
+             VALUES ($1, $2, $3, 7, FALSE)`,
+            [facture.id, newQuittance, numeroStr]
+          );
+        }
         
         const baseNum = typeFacture === 'B' ? numFacture.split('-')[0] : numFacture;
         
@@ -379,9 +497,9 @@ router.post('/recfacture/quittance/repair', async (req, res) => {
     }
 
     const nextQuittanceResult = await pool.query(`
-      SELECT COALESCE(MAX(quittance), 0) as max_quittance 
-      FROM facture_usager 
-      WHERE quittance IS NOT NULL AND quittance > 0
+      SELECT COALESCE(MAX(num_quitance), 0) as max_quittance 
+      FROM quitance_usager 
+      WHERE num_quitance IS NOT NULL AND num_quitance > 0
     `);
     const nextQuittance = String(parseInt(nextQuittanceResult.rows[0].max_quittance) + 1).padStart(7, '0');
 
@@ -403,7 +521,7 @@ router.post('/recfacture/quittance/repair', async (req, res) => {
 });
 
 // ============================================================
-// 8. NOUVEAU : MISE À JOUR D'UNE FACTURE (PATCH)
+// 8. MISE À JOUR D'UNE FACTURE (PATCH)
 // ============================================================
 router.patch('/recfacture/factures/:id', async (req, res) => {
   try {
@@ -430,7 +548,6 @@ router.patch('/recfacture/factures/:id', async (req, res) => {
       'moyens_communication', 'a_compter_du', 'echeance',
       'montant_mensuel', 'frais_dossier', 'montant_retard',
       'is_retard', 'soit_total', 'uniter',
-      'quittance', 'quittance_validee',
       'description_personnalisee', 'suffixe',
       'is_renouvellement', 'frais_renouvellement'
     ];
@@ -438,14 +555,12 @@ router.patch('/recfacture/factures/:id', async (req, res) => {
     const filteredUpdates = {};
     for (const key of allowedFields) {
       if (updates[key] !== undefined) {
-        if (key === 'quittance') {
-          const clean = String(updates[key]).replace(/\D/g, '');
-          filteredUpdates[key] = clean ? parseInt(clean, 10) : null;
-        } else {
-          filteredUpdates[key] = updates[key];
-        }
+        filteredUpdates[key] = updates[key];
       }
     }
+
+    // Gestion séparée de quittance (stockée dans quitance_usager)
+    const quittanceUpdate = updates.quittance;
 
     // Recalculer soit_total si les montants changent
     if (filteredUpdates.montant_mensuel !== undefined || 
@@ -480,23 +595,57 @@ router.patch('/recfacture/factures/:id', async (req, res) => {
       }
     }
 
+    // Mettre à jour facture_usager
     const keys = Object.keys(filteredUpdates);
-    if (keys.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Aucune donnée à mettre à jour'
-      });
+    if (keys.length > 0) {
+      const setClause = keys.map((key, index) => `${key} = $${index + 2}`).join(', ');
+      const values = [id, ...Object.values(filteredUpdates)];
+
+      await pool.query(
+        `UPDATE facture_usager 
+         SET ${setClause}, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $1`,
+        values
+      );
     }
 
-    const setClause = keys.map((key, index) => `${key} = $${index + 2}`).join(', ');
-    const values = [id, ...Object.values(filteredUpdates)];
+    // Mettre à jour quittance si fournie
+    if (quittanceUpdate !== undefined && quittanceUpdate !== null) {
+      const clean = String(quittanceUpdate).replace(/\D/g, '');
+      if (clean) {
+        const numQuittance = parseInt(clean, 10);
+        const numFormate = String(numQuittance).padStart(7, '0');
 
+        const existingQ = await pool.query(
+          `SELECT id FROM quitance_usager WHERE id_facture = $1`,
+          [id]
+        );
+
+        if (existingQ.rows.length > 0) {
+          await pool.query(
+            `UPDATE quitance_usager 
+             SET num_quitance = $1, num_quitance_formate = $2, updated_at = CURRENT_TIMESTAMP 
+             WHERE id_facture = $3`,
+            [numQuittance, numFormate, id]
+          );
+        } else {
+          await pool.query(
+            `INSERT INTO quitance_usager (id_facture, num_quitance, num_quitance_formate, longueur_format, quittance_validee)
+             VALUES ($1, $2, $3, 7, FALSE)`,
+            [id, numQuittance, numFormate]
+          );
+        }
+      }
+    }
+
+    // Récupérer la facture mise à jour avec la quittance
     const result = await pool.query(
-      `UPDATE facture_usager 
-       SET ${setClause}, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = $1
-       RETURNING *`,
-      values
+      `SELECT f.*, 
+              q.num_quitance, q.num_quitance_formate AS quittance, q.quittance_validee
+       FROM facture_usager f
+       LEFT JOIN quitance_usager q ON q.id_facture = f.id
+       WHERE f.id = $1`,
+      [id]
     );
 
     if (result.rows.length === 0) {
@@ -508,10 +657,6 @@ router.patch('/recfacture/factures/:id', async (req, res) => {
 
     const dafName = await getDAFName();
     result.rows[0].daf_nom = dafName;
-
-    if (result.rows[0].quittance !== null && result.rows[0].quittance !== undefined) {
-      result.rows[0].quittance = String(result.rows[0].quittance).padStart(7, '0');
-    }
 
     res.json({
       success: true,

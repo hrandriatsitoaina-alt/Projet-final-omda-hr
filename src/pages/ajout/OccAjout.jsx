@@ -6,17 +6,14 @@ import {
   Clock, FileText, CheckCircle, AlertCircle, PlusCircle,
   UserPlus, Music, Film, Star, Heart, Camera, BookOpen,
   ArrowLeft, ArrowRight, Save, X, Eye, Edit, Trash2,
-  Hash, Home, Phone, BarChart, Info,
+  Hash, Home, Phone, BarChart, Info, Building2,
 } from 'lucide-react';
 import { useToast } from '../../components/Toast';
-// ✅ Hook unique de traduction
 import { useT } from '../../hooks/useT';
 
 const OccAjout = ({ onCancel }) => {
   const navigate = useNavigate();
   const showToast = useToast();
-
-  // ✅ LANGUE UNIQUE — vient du Context
   const { t } = useT();
 
   const [currentStep, setCurrentStep] = useState(1);
@@ -33,10 +30,14 @@ const OccAjout = ({ onCancel }) => {
   const [globalDossierNumber, setGlobalDossierNumber] = useState('');
   const [globalTotalCount, setGlobalTotalCount] = useState(0);
 
-  const [regionsList, setRegionsList] = useState([]);
-  const [newRegion, setNewRegion] = useState('');
-  const [newRegionPhone, setNewRegionPhone] = useState('');
-  const [showAddRegion, setShowAddRegion] = useState(false);
+  // ✅ ÉTATS : régions uniques + villes + quartiers
+  const [regionsUniques, setRegionsUniques] = useState([]);
+  const [villesDisponibles, setVillesDisponibles] = useState([]);
+  const [quartiersDisponibles, setQuartiersDisponibles] = useState([]);
+
+  const [selectedRegion, setSelectedRegion] = useState('');
+  const [selectedVille, setSelectedVille] = useState('');
+  const [selectedQuartier, setSelectedQuartier] = useState('');
 
   const [hasOtherArtists, setHasOtherArtists] = useState(false);
   const [otherArtistsInputs, setOtherArtistsInputs] = useState([]);
@@ -139,66 +140,125 @@ const OccAjout = ({ onCancel }) => {
     }
   };
 
-  const loadRegions = async () => {
+  // ============================================================
+  // ✅ HELPER : extraire le nom de la ville (gère plusieurs formats)
+  // ============================================================
+  const getNomVille = (v) => {
+    if (!v) return '';
+    return v.nom || v.ville || v.nom_ville || '';
+  };
+
+  const getQuartierVille = (v) => {
+    if (!v) return '';
+    return v.quartier || '';
+  };
+
+  const getTelephoneVille = (v) => {
+    if (!v) return '';
+    return v.telephone || '';
+  };
+
+  // ============================================================
+  // ✅ CHARGER LES RÉGIONS UNIQUES
+  // ============================================================
+  const loadRegionsUniques = async () => {
     try {
       const response = await fetch('http://localhost:3001/api/regions');
       const result = await response.json();
-      if (result.success) {
-        setRegionsList(result.regions);
+      if (result.success && result.regions) {
+        const nomsUniques = [...new Set(result.regions.map(r => r.nom))].sort();
+        setRegionsUniques(nomsUniques);
       }
     } catch (error) {
       console.error('Erreur chargement régions:', error);
     }
   };
 
-  const handleAddRegion = async () => {
-    const trimmed = newRegion.trim();
-    if (!trimmed) {
-      showToast(t('Veuillez saisir un nom de région', 'Ampidiro anarana faritra', 'Please enter a region name'), 'error');
-      return;
+  // ============================================================
+  // ✅ CHARGER LES VILLES D'UNE RÉGION
+  // ============================================================
+  const loadVilles = async (regionNom) => {
+    if (!regionNom) {
+      setVillesDisponibles([]);
+      return [];
     }
-    if (regionsList.some(r => r.nom === trimmed)) {
-      showToast(t('Cette région existe déjà', 'Efa misy io faritra io', 'This region already exists'), 'error');
-      return;
-    }
-
-    const adminToken = localStorage.getItem('adminToken');
-    if (!adminToken) {
-      showToast(t(
-        'Token administrateur manquant. Veuillez vous reconnecter.',
-        'Tsy misy ny mari-pahaizana admin. Mifandraisa indray.',
-        'Admin token missing. Please log in again.'
-      ), 'error');
-      return;
-    }
-
     try {
-      const response = await fetch('http://localhost:3001/api/regions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          adminToken: adminToken,
-        },
-        body: JSON.stringify({
-          nom: trimmed,
-          telephone: newRegionPhone.trim() || null,
-        }),
-      });
+      const url = `http://localhost:3001/api/regions/villes/${encodeURIComponent(regionNom)}`;
+      const response = await fetch(url);
       const result = await response.json();
+
       if (result.success) {
-        setRegionsList([...regionsList, result.region]);
-        setNewRegion('');
-        setNewRegionPhone('');
-        setShowAddRegion(false);
-        showToast(`✅ ${t('Région ajoutée', 'Faritra nampiana', 'Region added')} : "${trimmed}"`, 'success');
-        loadRegions();
-      } else {
-        showToast(`❌ ${result.message}`, 'error');
+        const villes = (result.villes || []).map((v) => ({
+          id: v.id,
+          nom: getNomVille(v),
+          quartier: getQuartierVille(v),
+          telephone: getTelephoneVille(v),
+        })).filter((v) => v.nom);
+        setVillesDisponibles(villes);
+        return villes;
       }
+      setVillesDisponibles([]);
+      return [];
     } catch (error) {
-      console.error('Erreur ajout région:', error);
-      showToast(t('❌ Erreur de connexion', '❌ Nisy olana tamin\'ny fifandraisana', '❌ Connection error'), 'error');
+      console.error('Erreur chargement villes:', error);
+      setVillesDisponibles([]);
+      return [];
     }
+  };
+
+  // ============================================================
+  // ✅ CHANGEMENT DE RÉGION
+  // ✅ AUTO-SÉLECTION si une seule ville
+  // ============================================================
+  const handleRegionChange = async (e) => {
+    const regionNom = e.target.value;
+    setSelectedRegion(regionNom);
+    setSelectedVille('');
+    setSelectedQuartier('');
+    setQuartiersDisponibles([]);
+    setOccData(prev => ({ ...prev, region: regionNom }));
+
+    if (regionNom) {
+      const villes = await loadVilles(regionNom);
+
+      // ✅ Si UNE SEULE ville → auto-sélectionner + charger quartiers
+      if (villes.length === 1) {
+        const seuleVille = villes[0];
+        setSelectedVille(seuleVille.nom);
+
+        const quartiersDeVille = [seuleVille];
+        setQuartiersDisponibles(quartiersDeVille);
+
+        if (seuleVille.quartier) {
+          setSelectedQuartier(seuleVille.quartier);
+        }
+      }
+    } else {
+      setVillesDisponibles([]);
+    }
+  };
+
+  // ============================================================
+  // ✅ CHANGEMENT DE VILLE
+  // ============================================================
+  const handleVilleChange = (e) => {
+    const villeNom = e.target.value;
+    setSelectedVille(villeNom);
+    setSelectedQuartier('');
+
+    const quartiersDeVille = villesDisponibles.filter(v => v.nom === villeNom);
+    setQuartiersDisponibles(quartiersDeVille);
+
+    if (quartiersDeVille.length === 1 && quartiersDeVille[0].quartier) {
+      setSelectedQuartier(quartiersDeVille[0].quartier);
+    }
+  };
+
+  // ============================================================
+  // ✅ CHANGEMENT DE QUARTIER
+  // ============================================================
+  const handleQuartierChange = (e) => {
+    setSelectedQuartier(e.target.value);
   };
 
   useEffect(() => {
@@ -244,7 +304,7 @@ const OccAjout = ({ onCancel }) => {
           });
         }
       }
-      loadRegions();
+      loadRegionsUniques();
     };
     loadUserData();
 
@@ -311,6 +371,23 @@ const OccAjout = ({ onCancel }) => {
         ), 'error');
         return;
       }
+
+      // ✅ Validation Région
+      if (!selectedRegion || selectedRegion.trim() === '') {
+        showToast(t('Veuillez sélectionner une région', 'Misafidiana faritra azafady', 'Please select a region'), 'error');
+        return;
+      }
+
+      // ✅ Validation Ville : obligatoire si la région a PLUSIEURS villes
+      if (villesDisponibles.length > 1 && (!selectedVille || selectedVille.trim() === '')) {
+        showToast(t(
+          'Cette région a plusieurs villes, veuillez sélectionner une ville',
+          'Manana tanàna maro ity faritra ity, misafidiana tanàna azafady',
+          'This region has multiple cities, please select a city'
+        ), 'error');
+        return;
+      }
+
       setCurrentStep(2);
       return;
     }
@@ -411,7 +488,9 @@ const OccAjout = ({ onCancel }) => {
         confirmation_nom: occData.confirmationNom || '',
         date_signature: occData.dateSignature || null,
         lieu_ajout: occData.lieuAjout || '',
-        region: occData.region || '',
+        region: selectedRegion || '',
+        ville: selectedVille || '',
+        quartier: selectedQuartier || '',
         otherArtistsDetail: otherArtistsInputs,
         hasOtherArtists,
         demandeur: occData.organisateurs || '',
@@ -458,7 +537,9 @@ const OccAjout = ({ onCancel }) => {
               denomination: occData.genreManifestation || 'OCC',
               demandeur: occData.organisateurs,
               telephone: occData.telephone,
-              region: occData.region,
+              region: selectedRegion,
+              ville: selectedVille,
+              quartier: selectedQuartier,
               adresse: occData.adresse,
               genre_manifestation: occData.genreManifestation,
               date_evenement: occData.dateEvenement,
@@ -508,6 +589,15 @@ const OccAjout = ({ onCancel }) => {
     const currentMonth = new Date().getMonth() + 1;
     const currentTrimestre = getTrimestreFromMonth(currentMonth);
     const userDossierDisplay = `${prefix} ${nextCompteur}/${currentTrimestre}/${userInfo.anneeEnCours || new Date().getFullYear()}`;
+
+    const quartierInfo = quartiersDisponibles.find(
+      (q) => q.quartier === selectedQuartier
+    );
+
+    // ✅ Nombre de villes disponibles dans la région sélectionnée
+    const nbVilles = villesDisponibles.length;
+    // ✅ La ville est obligatoire seulement si plusieurs villes
+    const villeObligatoire = nbVilles > 1;
 
     return (
       <>
@@ -614,49 +704,162 @@ const OccAjout = ({ onCancel }) => {
           </div>
         </div>
 
+        {/* ✅ SECTION RÉGION — SELECT UNIQUEMENT */}
         <div className="form-row">
-          <div className="form-label"><h2><MapPin size={18} strokeWidth={2} /> {t('Région', 'Faritra', 'Region')} :</h2></div>
-          <div className="form-input" style={{ display: 'flex', gap: '10px' }}>
-            <select name="region" value={occData.region || ''} onChange={handleOccChange} className="input-style" style={{ flex: 1 }}>
-              <option value="">{t('Sélectionner une région', 'Misafidiana faritra', 'Select a region')}</option>
-              {regionsList.map((region) => {
-                const phone = region.telephone && region.telephone.trim() !== ''
-                  ? formatPhoneNumber(region.telephone)
-                  : null;
-                return (
-                  <option key={region.id} value={region.nom}>
-                    {region.nom} {phone ? `- ${phone}` : ''}
-                  </option>
-                );
-              })}
+          <div className="form-label">
+            <h2><MapPin size={18} strokeWidth={2} /> {t('Région', 'Faritra', 'Region')} :</h2>
+          </div>
+          <div className="form-input">
+            <select
+              name="region"
+              value={selectedRegion}
+              onChange={handleRegionChange}
+              className="input-style"
+              required
+            >
+              <option value="">
+                {t('Sélectionner une région', 'Misafidiana faritra', 'Select a region')}
+              </option>
+              {regionsUniques.map((regionNom) => (
+                <option key={regionNom} value={regionNom}>
+                  {regionNom}
+                </option>
+              ))}
             </select>
-            <button type="button" onClick={() => setShowAddRegion(!showAddRegion)} className="btn-add-region">+</button>
           </div>
         </div>
 
-        {showAddRegion && (
+        {/* ✅ SELECT VILLE — apparaît seulement si plusieurs villes */}
+        {selectedRegion && villeObligatoire && (
           <div className="form-row">
-            <div className="form-label"><h2><PlusCircle size={18} strokeWidth={2} /> {t('Nouvelle région', 'Faritra vaovao', 'New region')} :</h2></div>
-            <div className="form-input" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <input
-                type="text"
-                value={newRegion}
-                onChange={(e) => setNewRegion(e.target.value)}
-                placeholder={t('Nom de la région', 'Anaran\'ny faritra', 'Region name')}
+            <div className="form-label">
+              <h2>
+                <Home size={18} strokeWidth={2} /> {t('Ville', 'Tanàna', 'City')} :
+                <span style={{ color: '#dc3545', marginLeft: 4 }}>*</span>
+              </h2>
+            </div>
+            <div className="form-input">
+              <select
+                value={selectedVille}
+                onChange={handleVilleChange}
                 className="input-style"
-                style={{ flex: 1, minWidth: '150px' }}
-              />
-              <input
-                type="text"
-                value={newRegionPhone}
-                onChange={(e) => setNewRegionPhone(e.target.value)}
-                placeholder={t('Téléphone (optionnel)', 'Finday (tsy voatery)', 'Phone (optional)')}
+                required
+              >
+                <option value="">
+                  {t('Sélectionner une ville', 'Misafidiana tanàna', 'Select a city')}
+                </option>
+                {villesDisponibles.map((v) => (
+                  <option key={v.id} value={v.nom}>
+                    {v.nom}
+                  </option>
+                ))}
+              </select>
+              <span style={{ marginLeft: '10px', fontSize: '12px', color: '#6c757d' }}>
+                ({nbVilles} {t('villes disponibles', 'tanàna misy', 'available cities')})
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ✅ INFO : région avec une seule ville */}
+        {selectedRegion && nbVilles === 1 && (
+          <div className="form-row">
+            <div className="form-label">
+              <h2><Home size={18} strokeWidth={2} /> {t('Ville', 'Tanàna', 'City')} :</h2>
+            </div>
+            <div className="form-input">
+              <div style={{
+                padding: '8px 14px',
+                background: '#e8f5e9',
+                border: '1px solid #a5d6a7',
+                borderRadius: '8px',
+                color: '#2e7d32',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+              }}>
+                <Home size={14} />
+                {villesDisponibles[0]?.nom}
+                <span style={{ fontSize: '12px', opacity: 0.7, fontWeight: 400 }}>
+                  ({t('auto-sélectionnée', 'voafidy ho azy', 'auto-selected')})
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ✅ SELECT QUARTIER */}
+        {selectedVille && quartiersDisponibles.length > 0 && (
+          <div className="form-row">
+            <div className="form-label">
+              <h2><Building2 size={18} strokeWidth={2} /> {t('Quartier', 'Fokontany', 'Neighborhood')} :</h2>
+            </div>
+            <div className="form-input">
+              <select
+                value={selectedQuartier}
+                onChange={handleQuartierChange}
                 className="input-style"
-                style={{ flex: 1, minWidth: '150px' }}
-              />
-              <button type="button" onClick={handleAddRegion} className="btn-add-region-confirm">
-                {t('Ajouter', 'Hanampy', 'Add')}
-              </button>
+              >
+                <option value="">
+                  {t('Sélectionner un quartier', 'Misafidiana fokontany', 'Select a neighborhood')}
+                </option>
+                {quartiersDisponibles.map((q, index) => (
+                  <option key={q.id || index} value={q.quartier || ''}>
+                    {q.quartier || t('(Sans quartier)', '(Tsy misy fokontany)', '(No neighborhood)')}
+                    {q.telephone ? ` • ${q.telephone}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* ✅ RÉCAPITULATIF DE LA SÉLECTION */}
+        {(selectedRegion || selectedVille || selectedQuartier) && (
+          <div
+            className={`selection-summary ${
+              selectedRegion && selectedVille && selectedQuartier
+                ? 'complete'
+                : 'incomplete'
+            }`}
+          >
+            <CheckCircle size={18} className="summary-icon" />
+
+            <div className="summary-parts">
+              <span className="summary-part">
+                <MapPin size={12} />
+                <span>{t('Région', 'Faritra', 'Region')} :</span>
+                <strong>{selectedRegion || t('(non choisie)', '(tsy voafidy)', '(not selected)')}</strong>
+              </span>
+
+              <span className="summary-separator">•</span>
+
+              <span className="summary-part">
+                <Home size={12} />
+                <span>{t('Ville', 'Tanàna', 'City')} :</span>
+                <strong>{selectedVille || t('(non choisie)', '(tsy voafidy)', '(not selected)')}</strong>
+              </span>
+
+              <span className="summary-separator">•</span>
+
+              <span className="summary-part">
+                <Building2 size={12} />
+                <span>{t('Quartier', 'Fokontany', 'Neighborhood')} :</span>
+                <strong>
+                  {selectedQuartier || t('(non choisi)', '(tsy voafidy)', '(not selected)')}
+                </strong>
+              </span>
+
+              {quartierInfo && quartierInfo.telephone && (
+                <>
+                  <span className="summary-separator">•</span>
+                  <span className="summary-part">
+                    <Phone size={12} />
+                    <strong>{formatPhoneNumber(quartierInfo.telephone)}</strong>
+                  </span>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -858,7 +1061,9 @@ const OccAjout = ({ onCancel }) => {
             <tr><td><Calendar size={16} strokeWidth={2} /> {t('Date', 'Daty', 'Date')}</td><td>{occData.dateEvenement || '-'}</td></tr>
             <tr><td><MapPin size={16} strokeWidth={2} /> {t('Lieu', 'Toerana', 'Location')}</td><td>{occData.lieuEvenement || '-'}</td></tr>
             <tr><td><CreditCard size={16} strokeWidth={2} /> CIN</td><td>{occData.representantCin || '-'}</td></tr>
-            <tr><td><MapPin size={16} strokeWidth={2} /> {t('Région', 'Faritra', 'Region')}</td><td>{occData.region || '-'}</td></tr>
+            <tr><td><MapPin size={16} strokeWidth={2} /> {t('Région', 'Faritra', 'Region')}</td><td>{selectedRegion || '-'}</td></tr>
+            <tr><td><Home size={16} strokeWidth={2} /> {t('Ville', 'Tanàna', 'City')}</td><td>{selectedVille || '-'}</td></tr>
+            <tr><td><Building2 size={16} strokeWidth={2} /> {t('Quartier', 'Fokontany', 'Neighborhood')}</td><td>{selectedQuartier || '-'}</td></tr>
             <tr><td><FileText size={16} strokeWidth={2} /> {t('Frais de dossier', 'Saram-pandraharahana', 'File fees')}</td><td>{formatNumber(fraisVal)} Ar</td></tr>
             <tr><td><DollarSign size={16} strokeWidth={2} /> {t('Montant à payer', 'Vola haloa', 'Amount to pay')}</td><td>{formatNumber(montantVal)} Ar</td></tr>
             <tr><td><Hash size={16} strokeWidth={2} /> {t('Uniter', 'Isan\'ny', 'Unit')}</td><td>{uniterVal}</td></tr>

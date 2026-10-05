@@ -1,15 +1,20 @@
 // server/routes/generateursia.routes.js
 // ============================================================
-// MODULE IA OMDA — v13 (multilingue + conversations + régions corrigées)
+// MODULE IA OMDA — v17
+// ✅ CONFORMITÉ QUITTANCE : utilisation de quitance_usager (1:1)
+// - Montant = SUM(montant) seul
+// - OCC inclus (type_paiement = 'unique')
+// - Taux adapté : OCC = nb payés / nb total, autres = mois / 12
+// - Quittances : lecture depuis quitance_usager (JOIN facture_usager)
 // ============================================================
 const express = require('express');
 const router = express.Router();
 const pool = require('../database');
 
-console.log('✅ Routeur IA (generateursia) chargé - v13');
+console.log('✅ Routeur IA (generateursia) chargé - v17 (quitance_usager)');
 
 // ============================================================
-// 🌍 DICTIONNAIRE MULTILINGUE — avec variantes aléatoires
+// 🌍 DICTIONNAIRE MULTILINGUE
 // ============================================================
 const LANG = {
   fr: {
@@ -209,9 +214,19 @@ function listeGenerique(items, { max = 30 } = {}) {
 
 // ============================================================
 // 📥 COLLECTE
+// ✅ CORRIGÉ : utilisation de quitance_usager (1:1 avec facture_usager)
 // ============================================================
 async function collecterDonneesCompletes() {
-  const data = { usagers: {}, paiements: [], factures: [], quittances: [], regions: [], artistesCount: 0, utilisateursActifs: 0 };
+  const data = {
+    usagers: {},
+    paiements: [],
+    factures: [],
+    quittances: [],       // ✅ Depuis quitance_usager
+    regions: [],
+    artistesCount: 0,
+    utilisateursActifs: 0,
+  };
+
   const USAGER_TABLES = {
     hotel: 'usagers_hotel',
     'grand-surface': 'usagers_magasin',
@@ -219,20 +234,71 @@ async function collecterDonneesCompletes() {
     occ: 'usagers_occasionnel',
     bus: 'usagers_bus',
     nightclub: 'usagers_nightclub',
-    other: 'usager_other',   // ✅ AJOUT
+    other: 'usager_other',
   };
+
   for (const [type, table] of Object.entries(USAGER_TABLES)) {
-    try { data.usagers[type] = (await pool.query(`SELECT * FROM ${table}`)).rows; }
-    catch (e) { data.usagers[type] = []; }
+    try {
+      data.usagers[type] = (await pool.query(`SELECT * FROM ${table}`)).rows;
+    } catch (e) {
+      data.usagers[type] = [];
+    }
   }
-  try { data.paiements = (await pool.query(`SELECT * FROM paiements ORDER BY created_at DESC`)).rows; } catch (e) {}
+
+  try {
+    data.paiements = (await pool.query(`SELECT * FROM paiements ORDER BY created_at DESC`)).rows;
+  } catch (e) { /* ignore */ }
+
+  // ✅ Factures
   try {
     data.factures = (await pool.query(`SELECT * FROM facture_usager ORDER BY created_at DESC`)).rows;
-    data.quittances = data.factures.filter(f => f.quittance);
-  } catch (e) {}
-  try { data.regions = (await pool.query(`SELECT * FROM regions ORDER BY nom`)).rows; } catch (e) {}
-  try { data.artistesCount = parseInt((await pool.query(`SELECT COUNT(*) as total FROM artistes`)).rows[0]?.total) || 0; } catch (e) {}
-  try { data.utilisateursActifs = parseInt((await pool.query(`SELECT COUNT(*) AS total FROM utilisateurs WHERE statut = 'actif'`)).rows[0]?.total) || 0; } catch (e) {}
+  } catch (e) { /* ignore */ }
+
+  // ✅ Quittances : lecture depuis quitance_usager (JOIN pour infos facture)
+  try {
+    const qRes = await pool.query(`
+      SELECT
+        q.id,
+        q.id_facture,
+        q.num_quitance,
+        q.num_quitance_formate,
+        q.longueur_format,
+        q.quittance_validee,
+        q.personne_recu,
+        q.created_at AS quittance_created_at,
+        q.updated_at AS quittance_updated_at,
+        f.ref_omda,
+        f.num_facture,
+        f.ref_client_type,
+        f.ref_usager,
+        f.denomination,
+        f.demandeur,
+        f.region_usager,
+        f.soit_total,
+        f.statut AS statut_facture,
+        f.date_ajout
+      FROM quitance_usager q
+      INNER JOIN facture_usager f ON f.id = q.id_facture
+      ORDER BY q.id ASC
+    `);
+    data.quittances = qRes.rows;
+  } catch (e) {
+    console.warn('⚠️ Erreur chargement quitance_usager:', e.message);
+    data.quittances = [];
+  }
+
+  try {
+    data.regions = (await pool.query(`SELECT * FROM regions ORDER BY nom`)).rows;
+  } catch (e) { /* ignore */ }
+
+  try {
+    data.artistesCount = parseInt((await pool.query(`SELECT COUNT(*) as total FROM artistes`)).rows[0]?.total) || 0;
+  } catch (e) { /* ignore */ }
+
+  try {
+    data.utilisateursActifs = parseInt((await pool.query(`SELECT COUNT(*) AS total FROM utilisateurs WHERE statut = 'actif'`)).rows[0]?.total) || 0;
+  } catch (e) { /* ignore */ }
+
   return data;
 }
 
@@ -243,7 +309,7 @@ const TYPE_LABELS = {
   occ: 'OCC',
   bus: 'Bus',
   nightclub: 'Night Club',
-  other: 'Autre',   // ✅ AJOUT
+  other: 'Autre',
 };
 
 const MOIS_SHORT = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
@@ -316,10 +382,29 @@ async function analyserUsagersParAnnee(annee = null) {
   const result = [];
 
   for (const [type, usagers] of Object.entries(data.usagers)) {
-    const pType = data.paiements.filter(p => p.usager_type === type && p.statut === 'paye' && p.annee === anneeCible);
+    const pType = data.paiements.filter(p =>
+      p.usager_type === type &&
+      p.statut === 'paye' &&
+      (p.type_paiement === 'unique' || p.annee === anneeCible)
+    );
     for (const u of usagers) {
       const pU = pType.filter(p => p.usager_id === u.id);
-      const moisPayes = pU.map(p => p.mois).sort((a, b) => a - b);
+      const moisSet = new Set();
+      for (const p of pU) {
+        if (p.mois_payes) {
+          try {
+            const arr = typeof p.mois_payes === 'string' ? JSON.parse(p.mois_payes) : p.mois_payes;
+            if (Array.isArray(arr)) arr.forEach(m => moisSet.add(parseInt(m, 10)));
+          } catch (e) { /* ignore */ }
+        }
+        if (p.mois !== null && p.mois !== undefined) {
+          moisSet.add(parseInt(p.mois, 10));
+        }
+        if (p.type_paiement === 'unique' && moisSet.size === 0) {
+          moisSet.add(1);
+        }
+      }
+      const moisPayes = Array.from(moisSet).sort((a, b) => a - b);
       const montantPaye = pU.reduce((s, p) => s + (parseFloat(p.montant) || 0), 0);
       const nbMois = moisPayes.length;
       let statut = 'non-payeur';
@@ -376,8 +461,11 @@ async function rechercherUsagers(critere) {
 }
 
 // ============================================================
-// 🧩 DIAGNOSTIC — VERSION COMPLÈTE CORRIGÉE
-//    ✅ Répartition par région calculée depuis les PAIEMENTS RÉELS
+// 🧩 DIAGNOSTIC — v17 (quitance_usager)
+//    ✅ Montant = SUM(montant) seul
+//    ✅ OCC inclus
+//    ✅ Taux adapté
+//    ✅ Quittances via quitance_usager
 // ============================================================
 async function construireDiagnostic() {
   const data = await collecterDonneesCompletes();
@@ -388,39 +476,64 @@ async function construireDiagnostic() {
   for (const [type, usagers] of Object.entries(data.usagers)) {
     const paiementsType = data.paiements.filter(p => p.usager_type === type && p.statut === 'paye');
     const usagersPayesIds = new Set(paiementsType.map(p => p.usager_id));
-    const montantType = paiementsType.reduce((s, p) => {
-      const m = parseFloat(p.montant) || 0;
-      const f = parseFloat(p.frais_dossier) || 0;
-      const r = parseFloat(p.montant_retard) || 0;
-      return s + m + f + r;
-    }, 0);
+
+    const nbUsagersAyantPaye = usagersPayesIds.size;
+    const totalUsagersType = usagers.length;
+
+    // ✅ Taux adapté au type
+    let tauxPaiementReel = 0;
+
+    if (type === 'occ') {
+      tauxPaiementReel = totalUsagersType > 0
+        ? Number(((nbUsagersAyantPaye / totalUsagersType) * 100).toFixed(1))
+        : 0;
+    } else {
+      let totalMoisPayes = 0;
+      for (const u of usagers) {
+        const paiementsUsager = paiementsType.filter(p => p.usager_id === u.id);
+        const moisSet = new Set();
+        for (const p of paiementsUsager) {
+          if (p.mois_payes) {
+            try {
+              const arr = typeof p.mois_payes === 'string' ? JSON.parse(p.mois_payes) : p.mois_payes;
+              if (Array.isArray(arr)) arr.forEach(m => moisSet.add(parseInt(m, 10)));
+            } catch (e) { /* ignore */ }
+          }
+          if (p.mois !== null && p.mois !== undefined) {
+            moisSet.add(parseInt(p.mois, 10));
+          }
+        }
+        totalMoisPayes += moisSet.size;
+      }
+      const moisTheoriques = totalUsagersType * 12;
+      tauxPaiementReel = moisTheoriques > 0
+        ? Number(((totalMoisPayes / moisTheoriques) * 100).toFixed(1))
+        : 0;
+    }
+
+    // ✅ SUM(montant) uniquement
+    const montantType = paiementsType.reduce((s, p) => s + (parseFloat(p.montant) || 0), 0);
 
     categories[type] = {
       label: TYPE_LABELS[type] || type,
-      total: usagers.length,
-      payes: usagersPayesIds.size,
-      nonPayes: Math.max(0, usagers.length - usagersPayesIds.size),
-      tauxPaiement: usagers.length > 0 ? Number(((usagersPayesIds.size / usagers.length) * 100).toFixed(1)) : 0,
-      montantTotal: Number(montantType.toFixed(2))
+      total: totalUsagersType,
+      payes: nbUsagersAyantPaye,
+      nonPayes: Math.max(0, totalUsagersType - nbUsagersAyantPaye),
+      tauxPaiement: tauxPaiementReel,
+      montantTotal: Number(montantType.toFixed(2)),
+      mode: type === 'occ' ? 'unique' : 'mensuel',
     };
-    totalUsagers += usagers.length;
-    totalUsagersPayes += usagersPayesIds.size;
+    totalUsagers += totalUsagersType;
+    totalUsagersPayes += nbUsagersAyantPaye;
   }
 
   const tauxGlobal = totalUsagers > 0 ? Number(((totalUsagersPayes / totalUsagers) * 100).toFixed(1)) : 0;
 
-  // ✅ SOURCE DE VÉRITÉ : paiements réels (statut = 'paye')
   const paiementsPayesAll = data.paiements.filter(p => p.statut === 'paye');
 
-  // ✅ Montant global encaissé (montant + frais_dossier + montant_retard)
-  const montantGlobalPaye = paiementsPayesAll.reduce((s, p) => {
-    const m = parseFloat(p.montant) || 0;
-    const f = parseFloat(p.frais_dossier) || 0;
-    const r = parseFloat(p.montant_retard) || 0;
-    return s + m + f + r;
-  }, 0);
+  // ✅ SUM(montant) uniquement
+  const montantGlobalPaye = paiementsPayesAll.reduce((s, p) => s + (parseFloat(p.montant) || 0), 0);
 
-  // ✅ Index usagers par (type_id) pour retrouver la région
   const usagersIndex = {};
   for (const [type, usagers] of Object.entries(data.usagers)) {
     for (const u of usagers) {
@@ -428,7 +541,6 @@ async function construireDiagnostic() {
     }
   }
 
-  // ✅ Répartition par région depuis les paiements réels
   const regionsMap = {};
   for (const p of paiementsPayesAll) {
     const key = `${p.usager_type}_${p.usager_id}`;
@@ -446,9 +558,7 @@ async function construireDiagnostic() {
     }
 
     const m = parseFloat(p.montant) || 0;
-    const f = parseFloat(p.frais_dossier) || 0;
-    const r = parseFloat(p.montant_retard) || 0;
-    regionsMap[region].montant += m + f + r;
+    regionsMap[region].montant += m;
 
     if (!regionsMap[region]._usagersSet.has(key)) {
       regionsMap[region]._usagersSet.add(key);
@@ -466,16 +576,11 @@ async function construireDiagnostic() {
     }))
     .sort((a, b) => b.montant - a.montant);
 
-  // Log de vérification
-  const totalParRegion = parRegion.reduce((s, r) => s + r.montant, 0);
-  console.log(`🗺️  Répartition par région — Total : ${totalParRegion} Ar`);
-  parRegion.forEach(r => {
-    console.log(`   ${r.region.padEnd(20)} : ${r.nbUsagers} usagers, ${r.nbQuittances} paiements — ${r.montant} Ar`);
-  });
+  // ✅ Statistiques quittances depuis quitance_usager
+  const totalQuittances = data.quittances.length;
+  const quittancesValidees = data.quittances.filter(q => q.quittance_validee === true).length;
+  const quittancesNonValidees = data.quittances.filter(q => q.quittance_validee === false).length;
 
-  const quittancesNonValidees = data.factures.filter(f => f.quittance && f.quittance_validee === false).length;
-
-  // ─── STATS USAGERS ───
   const usagersStatut = await analyserUsagersParAnnee();
   const statsStatut = {
     bonPayeur: usagersStatut.filter(u => u.statut === 'bon-payeur').length,
@@ -484,7 +589,6 @@ async function construireDiagnostic() {
     nonPayeur: usagersStatut.filter(u => u.statut === 'non-payeur').length
   };
 
-  // ✅ DONNÉES MENSUELLES
   const donneesMensuelles = extraireDonneesMensuelles(paiementsPayesAll);
   let tendance = null;
   let forecast = [];
@@ -527,7 +631,6 @@ async function construireDiagnostic() {
   else if (tauxGlobal < 90) objectifTaux = 90;
   else objectifTaux = 100;
 
-  // ─── ALERTES ───
   const alertes = [];
   if (tauxGlobal < 50 && totalUsagers > 0) {
     alertes.push({
@@ -587,7 +690,6 @@ async function construireDiagnostic() {
   }
   alertes.sort((a, b) => a.priorite - b.priorite);
 
-  // ─── SUCCÈS ───
   const succes = [];
   if (tauxGlobal >= 70) succes.push({ titre: 'Bon taux global', message: `${tauxGlobal}% à jour.` });
   if (tendance && tendance.pente > 0) succes.push({ titre: 'Croissance', message: `+${tendance.pourcentage}%.` });
@@ -598,7 +700,6 @@ async function construireDiagnostic() {
   if (data.artistesCount > 0) succes.push({ titre: 'Base artistes', message: `${data.artistesCount} artiste(s).` });
   if (succes.length === 0) succes.push({ titre: 'Aucun point fort majeur', message: 'Concentrez-vous sur les alertes.' });
 
-  // ─── SUGGESTIONS ───
   const suggestions = [];
   suggestions.push({ texte: `Atteindre ${objectifTaux}% de taux global`, priorite: 'haute' });
   if (tauxGlobal < 60) suggestions.push({ texte: 'Lancer relance urgente', priorite: 'haute' });
@@ -626,7 +727,9 @@ async function construireDiagnostic() {
       objectifTaux,
       montantGlobalPaye: Number(montantGlobalPaye.toFixed(2)),
       totalFactures: data.factures.length,
-      totalQuittances: data.quittances.length,
+      // ✅ Statistiques quittances depuis quitance_usager
+      totalQuittances,
+      quittancesValidees,
       quittancesNonValidees,
       totalRegions: data.regions.length,
       totalArtistes: data.artistesCount,
@@ -925,15 +1028,29 @@ router.post('/ia/chat', async (req, res) => {
     else if (intent === 'categories') {
       reponse = `CATÉGORIES D'USAGERS\n\n`;
       reponse += listeGenerique(
-        Object.values(diagnostic.categories).map(c => `${c.label} — ${c.payes}/${c.total} payés (${c.tauxPaiement}%)`)
+        Object.values(diagnostic.categories).map(c =>
+          `${c.label} — ${c.payes}/${c.total} payés (${c.tauxPaiement}%) [mode: ${c.mode}]`
+        )
       );
     }
     else if (intent === 'factures' || intent === 'factures_payees' || intent === 'factures_impayees') {
       const data = await collecterDonneesCompletes();
       let factures = data.factures;
       let titreTxt = 'Factures';
-      if (intent === 'factures_payees') { factures = factures.filter(f => f.quittance && f.quittance_validee !== false); titreTxt = 'Factures payées'; }
-      else if (intent === 'factures_impayees') { factures = factures.filter(f => !f.quittance || f.quittance_validee === false); titreTxt = 'Factures impayées'; }
+      // ✅ CORRIGÉ : utiliser quitance_usager (jointure via id_facture)
+      if (intent === 'factures_payees') {
+        const idsValidees = new Set(
+          data.quittances.filter(q => q.quittance_validee === true).map(q => q.id_facture)
+        );
+        factures = factures.filter(f => idsValidees.has(f.id));
+        titreTxt = 'Factures payées';
+      } else if (intent === 'factures_impayees') {
+        const idsValidees = new Set(
+          data.quittances.filter(q => q.quittance_validee === true).map(q => q.id_facture)
+        );
+        factures = factures.filter(f => !idsValidees.has(f.id));
+        titreTxt = 'Factures impayées';
+      }
       reponse = `${titreTxt} — ${factures.length}\n\n`;
       reponse += listeGenerique(
         factures.slice(0, 20).map(f => `Réf ${f.ref_usager || '-'} — ${f.region_usager || '-'} : ${fmtN(f.soit_total)} Ar`)
@@ -942,16 +1059,20 @@ router.post('/ia/chat', async (req, res) => {
     else if (intent === 'quittances' || intent === 'quittances_non_validees') {
       const data = await collecterDonneesCompletes();
       if (intent === 'quittances_non_validees') {
-        const nv = data.factures.filter(f => f.quittance && f.quittance_validee === false);
+        // ✅ CORRIGÉ : filtre sur q.quittance_validee
+        const nv = data.quittances.filter(q => q.quittance_validee === false);
         reponse = `QUITTANCES NON VALIDÉES — ${nv.length}\n\n`;
         reponse += listeGenerique(
-          nv.slice(0, 20).map(f => `Réf ${f.ref_usager || '-'} — ${f.region_usager || '-'} : ${fmtN(f.soit_total)} Ar`)
+          nv.slice(0, 20).map(q => 
+            `N° ${q.num_quitance_formate || '-'} — ${q.denomination || '-'} (${q.region_usager || '-'}) : ${fmtN(q.soit_total)} Ar`
+          )
         );
       } else {
         reponse = `QUITTANCES\n\n`;
         reponse += `   1) Total ............. : ${diagnostic.global.totalQuittances}\n`;
-        reponse += `   2) Non validées ...... : ${diagnostic.global.quittancesNonValidees}\n`;
-        reponse += `   3) Factures .......... : ${diagnostic.global.totalFactures}`;
+        reponse += `   2) Validées .......... : ${diagnostic.global.quittancesValidees}\n`;
+        reponse += `   3) Non validées ...... : ${diagnostic.global.quittancesNonValidees}\n`;
+        reponse += `   4) Factures .......... : ${diagnostic.global.totalFactures}`;
       }
     }
     else if (intent === 'artistes' || intent === 'artistes_statut') {
@@ -987,8 +1108,9 @@ router.post('/ia/chat', async (req, res) => {
       reponse += `   5) Montant collecté .... : ${fmtN(g.montantGlobalPaye)} Ar\n`;
       reponse += `   6) Factures ............ : ${g.totalFactures}\n`;
       reponse += `   7) Quittances .......... : ${g.totalQuittances}\n`;
-      reponse += `   8) Quittances à valider  : ${g.quittancesNonValidees}\n`;
-      reponse += `   9) Artistes ............ : ${g.totalArtistes}\n\n`;
+      reponse += `   8) Quittances validées . : ${g.quittancesValidees}\n`;
+      reponse += `   9) Quittances à valider  : ${g.quittancesNonValidees}\n`;
+      reponse += `  10) Artistes ............ : ${g.totalArtistes}\n\n`;
       reponse += `   Répartition :\n`;
       reponse += `   1) Bons payeurs ........ : ${diagnostic.statsStatut.bonPayeur}\n`;
       reponse += `   2) Payeurs moyens ...... : ${diagnostic.statsStatut.payeurMoyen}\n`;

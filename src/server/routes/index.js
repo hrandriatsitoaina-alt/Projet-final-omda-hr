@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 
+const accesDafRoutes = require('./accesDaf.routes');
 const authRoutes = require('./auth.routes');
 const usagersRoutes = require('./usagers.routes');
 const regionsRoutes = require('./regions.routes');
@@ -20,8 +21,14 @@ const quitanceRoutes = require('./quitance.routes');
 const bilanRoutes = require('./bilan.routes');
 const repartitionRoutes = require('./repartition.routes');
 const generateursiaRoutes = require('./generateursia.routes');
-const otherusagerRoutes = require('./otherusager.routes');   //  corrigé
+const otherusagerRoutes = require('./otherusager.routes');
+const deleteRoutes = require('./delete.routes');
+const comptRoutes = require('./compt.routes');
 
+
+const gestionbdAdminRoutes = require('./gestionbdAdmin.route');
+
+router.use(accesDafRoutes);
 router.use(authRoutes);
 router.use(usagersRoutes);
 router.use(regionsRoutes);
@@ -40,6 +47,11 @@ router.use(quitanceRoutes);
 router.use(bilanRoutes);
 router.use(repartitionRoutes);
 router.use(generateursiaRoutes);
-router.use(otherusagerRoutes);   //  corrigé (router.use au lieu de app.use)
+router.use(otherusagerRoutes);
+router.use(deleteRoutes);
+router.use(comptRoutes);
+
+
+router.use(gestionbdAdminRoutes);
 
 module.exports = router;

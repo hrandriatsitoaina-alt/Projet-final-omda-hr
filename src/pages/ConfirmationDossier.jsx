@@ -7,7 +7,7 @@ import {
   FileText, Receipt, QrCode, Download, CheckCircle, XCircle,
   Info, AlertCircle, Building2, User, Phone, MapPin, Calendar, Star,
   Hotel, Store, Bus, PartyPopper, Tv2, Ticket, ArrowLeft,
-  Loader2, FileSignature,
+  Loader2, FileSignature, Lock,
 } from 'lucide-react';
 import '../styles/confirmation-dossier.css';
 import MiniSidebar from '../components/MiniSidebar';
@@ -22,6 +22,37 @@ import { generateNightPDF } from './pdf/night_pdf';
 import { generateBusPDF } from './pdf/bus_pdf';
 import { generateOccPDF } from './pdf/occ_pdf';
 import { generateFacturePDF } from './pdf/facture_pdf';
+
+// ============================================================
+// ✅ VERROUILLAGE PERMANENT — Une seule génération par document
+// ============================================================
+const LOCK_PREFIX = 'omda_lock';
+
+const buildLockKey = (doc, usagerType, usagerId) => {
+  if (!usagerType || !usagerId) return null;
+  return `${LOCK_PREFIX}_${doc}_${usagerType}_${usagerId}`;
+};
+
+const isLocked = (doc, usagerType, usagerId) => {
+  const key = buildLockKey(doc, usagerType, usagerId);
+  if (!key) return false;
+  try {
+    return localStorage.getItem(key) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const lockDoc = (doc, usagerType, usagerId) => {
+  const key = buildLockKey(doc, usagerType, usagerId);
+  if (!key) return;
+  try {
+    localStorage.setItem(key, 'true');
+    localStorage.setItem(`${key}_at`, new Date().toISOString());
+  } catch (e) {
+    console.warn('⚠️ Impossible de verrouiller:', doc, e);
+  }
+};
 
 const ConfirmationDossier = () => {
   const navigate = useNavigate();
@@ -46,23 +77,17 @@ const ConfirmationDossier = () => {
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrCodeData, setQrCodeData] = useState(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [qrDownloaded, setQrDownloaded] = useState(false);
   const [validatedDossiers, setValidatedDossiers] = useState({});
   const [currentUser, setCurrentUser] = useState(null);
   const [isCreatingFacture, setIsCreatingFacture] = useState(false);
+
+  const [regionsCache, setRegionsCache] = useState([]);
 
   const [factureAvanceeCreee, setFactureAvanceeCreee] = useState(false);
   const [contratGenere, setContratGenere] = useState(false);
   const [qrGenere, setQrGenere] = useState(false);
 
-  // ============================================================
-  // ✅ VERROUS SYNCHRONES (refs) — identiques pour les 3 actions.
-  // Un ref se lit/écrit de façon 100% synchrone, contrairement à un
-  // state React : même si le clic bulle deux fois (bouton + div
-  // parent) dans le même tick, ou si l'utilisateur double-clique
-  // avant le premier re-render, le second appel est bloqué AVANT
-  // même de démarrer, car le ref est déjà à `true` au moment où il
-  // est testé.
-  // ============================================================
   const contratInFlightRef = useRef(false);
   const factureInFlightRef = useRef(false);
   const qrInFlightRef = useRef(false);
@@ -102,6 +127,36 @@ const ConfirmationDossier = () => {
     media: '#FDE8E8',
     occ: '#E0F7F4',
   }), []);
+
+  const loadRegions = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/regions');
+      const data = await response.json();
+      if (data.success && Array.isArray(data.regions)) {
+        setRegionsCache(data.regions);
+        return data.regions;
+      }
+    } catch (error) {
+      console.error('⚠️ Erreur chargement régions:', error);
+    }
+    return [];
+  }, []);
+
+  const getRegionInfo = useCallback((regionName) => {
+    if (!regionName || !regionsCache || regionsCache.length === 0) return null;
+    const normalized = String(regionName).trim().toLowerCase();
+    return regionsCache.find(r => (r.nom || '').trim().toLowerCase() === normalized) || null;
+  }, [regionsCache]);
+
+  const formatPhoneNumber = useCallback((phone) => {
+    if (!phone) return '';
+    const cleaned = String(phone).replace(/\s/g, '').replace(/[^0-9]/g, '');
+    if (cleaned.length === 0) return '';
+    if (cleaned.length <= 3) return cleaned;
+    if (cleaned.length <= 5) return `${cleaned.slice(0, 3)} ${cleaned.slice(3)}`;
+    if (cleaned.length <= 8) return `${cleaned.slice(0, 3)} ${cleaned.slice(3, 5)} ${cleaned.slice(5)}`;
+    return `${cleaned.slice(0, 3)} ${cleaned.slice(3, 5)} ${cleaned.slice(5, 8)} ${cleaned.slice(8, 10)}`;
+  }, []);
 
   const fetchArtistesForEvent = useCallback(async (eventId) => {
     try {
@@ -175,7 +230,7 @@ const ConfirmationDossier = () => {
   }, [locale]);
 
   // ============================================================
-  // EFFET 1 : Chargement de l'usager
+  // ✅ CHARGEMENT USAGER
   // ============================================================
   useEffect(() => {
     let cancelled = false;
@@ -183,66 +238,67 @@ const ConfirmationDossier = () => {
     const loadUsager = async () => {
       const state = location.state;
 
+      let usagerData = null;
+      let type = 'hotel';
+
       if (state?.usager) {
-        let usagerData = state.usager;
-
-        if (state.type === 'occ' && usagerData.id) {
-          const artistesData = await fetchArtistesForEvent(usagerData.id);
-          if (!cancelled && artistesData.artistes?.length > 0) {
-            usagerData = {
-              ...usagerData,
-              artistes_detail: artistesData.artistes,
-              artistesList: artistesData.artistes,
-              artistesString: artistesData.artistesString,
-            };
-          }
+        usagerData = state.usager;
+        type = state.type || 'hotel';
+      } else {
+        const savedUsager = sessionStorage.getItem('lastUsager');
+        if (savedUsager) {
+          try {
+            const parsed = JSON.parse(savedUsager);
+            usagerData = parsed.usager;
+            type = parsed.type || 'hotel';
+          } catch { /* ignore */ }
         }
+      }
 
-        if (!cancelled) {
-          setUsager(usagerData);
-          setUsagerType(state.type || 'hotel');
-          setLoading(false);
-        }
-
-        try {
-          sessionStorage.setItem('lastUsager', JSON.stringify({
-            usager: usagerData,
-            type: state.type || 'hotel',
-          }));
-        } catch (e) {
-          console.warn('⚠️ sessionStorage indisponible:', e);
-        }
+      if (!usagerData) {
+        if (!cancelled) navigate('/dashboard');
         return;
       }
 
-      const savedUsager = sessionStorage.getItem('lastUsager');
-      if (savedUsager) {
-        try {
-          const parsed = JSON.parse(savedUsager);
-          let usagerData = parsed.usager;
+      const contratDejaGenere = isLocked('contrat', type, usagerData.id);
+      const factureDejaCreee = isLocked('facture', type, usagerData.id);
+      const qrDejaGenere = isLocked('qr', type, usagerData.id);
 
-          if (parsed.type === 'occ' && usagerData.id) {
-            const artistesData = await fetchArtistesForEvent(usagerData.id);
-            if (!cancelled && artistesData.artistes?.length > 0) {
-              usagerData = {
-                ...usagerData,
-                artistes_detail: artistesData.artistes,
-                artistesList: artistesData.artistes,
-                artistesString: artistesData.artistesString,
-              };
-            }
-          }
+      setContratGenere(contratDejaGenere);
+      setFactureAvanceeCreee(factureDejaCreee);
+      setQrGenere(qrDejaGenere);
+      setValidatedDossiers({
+        Contrat: contratDejaGenere,
+        FactureAvancee: factureDejaCreee,
+        'QR Code': qrDejaGenere,
+      });
 
-          if (!cancelled) {
-            setUsager(usagerData);
-            setUsagerType(parsed.type || 'hotel');
-            setLoading(false);
-          }
-          return;
-        } catch (e) { /* ignore */ }
+      if (type === 'occ' && usagerData.id) {
+        const artistesData = await fetchArtistesForEvent(usagerData.id);
+        if (!cancelled && artistesData.artistes?.length > 0) {
+          usagerData = {
+            ...usagerData,
+            artistes_detail: artistesData.artistes,
+            artistesList: artistesData.artistes,
+            artistesString: artistesData.artistesString,
+          };
+        }
       }
 
-      if (!cancelled) navigate('/dashboard');
+      if (cancelled) return;
+
+      setUsager(usagerData);
+      setUsagerType(type);
+      setLoading(false);
+
+      try {
+        sessionStorage.setItem('lastUsager', JSON.stringify({
+          usager: usagerData,
+          type,
+        }));
+      } catch (e) {
+        console.warn('⚠️ sessionStorage indisponible:', e);
+      }
     };
 
     loadUsager();
@@ -250,9 +306,10 @@ const ConfirmationDossier = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state, navigate]);
 
-  // ============================================================
-  // EFFET 2 : Utilisateur courant (une seule fois)
-  // ============================================================
+  useEffect(() => {
+    loadRegions();
+  }, [loadRegions]);
+
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
@@ -270,218 +327,234 @@ const ConfirmationDossier = () => {
   }, []);
 
   // ============================================================
-  // EFFET 3 : Vérification localStorage
-  // ⚠️ Cet effet ne fait QUE LIRE le localStorage et mettre à jour
-  // le state d'affichage. Il n'appelle JAMAIS handleGenerateFactureAvancee,
-  // handleGenerateContrat ni handleGenerateQR — donc il ne peut pas être
-  // la cause d'une génération "automatique".
+  // ✅ GÉNÉRATION QR — IDENTIQUE À GestionDossier.jsx
+  //    Avec Ville / Quartier / Téléphone de la région
+  //    SANS parenthèses
   // ============================================================
-  useEffect(() => {
-    if (!usager?.id || !usagerType) return;
-
-    const keyFacture = `facture_avancee_${usagerType}_${usager.id}`;
-    const keyContrat = `contrat_genere_${usagerType}_${usager.id}`;
-    const keyQr = `qr_genere_${usagerType}_${usager.id}`;
-
-    if (localStorage.getItem(keyFacture) === 'true') {
-      setFactureAvanceeCreee(true);
-      setValidatedDossiers(prev => prev.FactureAvancee ? prev : { ...prev, FactureAvancee: true });
-    }
-    if (localStorage.getItem(keyContrat) === 'true') {
-      setContratGenere(true);
-      setValidatedDossiers(prev => prev.Contrat ? prev : { ...prev, Contrat: true });
-    }
-    if (localStorage.getItem(keyQr) === 'true') {
-      setQrGenere(true);
-      setValidatedDossiers(prev => prev['QR Code'] ? prev : { ...prev, 'QR Code': true });
-    }
-  }, [usager?.id, usagerType]);
-
   const generateQRTextContent = useCallback((u, type) => {
-    if (!u) return `OMDA - ${t('Document officiel', 'Rakitra ofisialy', 'Official document')}`;
+    if (!u) return `© OMDA - ${t('Document officiel', 'Rakitra ofisialy', 'Official document')}`;
 
-    const numeroDossier = u.numero_dossier_utilisateur || `ID-${u.id}`;
-    const omdaPhone = '034 05 533 88';
-    const omdaRegion = 'Analamanga';
+    const numeroDossier = u.numero_dossier_utilisateur || `REF-${u.id}`;
+    const omdaDefaultPhone = '034 05 533 88';
     const notSpecified = t('Non spécifié', 'Tsy voafaritra', 'Not specified');
 
-    let lines = [];
-    let typePrefix = '';
+    // ✅ Récupérer ville/quartier/téléphone de la région
+    let ville = '';
+    let quartier = '';
+    let telephoneRegion = '';
+
+    const regionName = u.region || u.region_usager || '';
+
+    if (u.ville) ville = String(u.ville).trim();
+    if (u.quartier) quartier = String(u.quartier).trim();
+    if (u.telephone_region) telephoneRegion = String(u.telephone_region).trim();
+
+    if ((!ville || !quartier || !telephoneRegion) && regionName) {
+      const regionInfo = getRegionInfo(regionName);
+      if (regionInfo) {
+        if (!ville && regionInfo.ville) ville = String(regionInfo.ville).trim();
+        if (!quartier && regionInfo.quartier) quartier = String(regionInfo.quartier).trim();
+        if (!telephoneRegion && regionInfo.telephone) telephoneRegion = String(regionInfo.telephone).trim();
+      }
+    }
+
+    // ✅ Ligne Region sans parenthèses
+    const buildRegionLine = (region) => {
+      return `${t('Region', 'Faritra', 'Region')} : ${region || notSpecified}`;
+    };
+
+    // ✅ Footer : © OMDA Ville - Quartier - Tel : XXX
+    const buildFooterLine = () => {
+      const parts = [];
+      if (ville) parts.push(`© OMDA ${ville}`);
+      else parts.push(`© OMDA`);
+      if (quartier) parts.push(`${quartier}`);
+      const tel = telephoneRegion ? formatPhoneNumber(telephoneRegion) : omdaDefaultPhone;
+      parts.push(`Tel : ${tel}`);
+      return parts.join(' - ');
+    };
+
+    const footerLine = buildFooterLine();
 
     switch (type) {
       case 'occ': {
-        typePrefix = 'OCC';
-        const nomPrincipal = u.organisateurs || u.demandeur || notSpecified;
-        const dateEvent = u.date_evenement ? formatDateForQR(u.date_evenement) : '';
-        const lieu = u.lieu_evenement || u.adresse || '';
-        const evenement = u.genre_manifestation || u.nom_evenement || '';
-        const region = u.region || notSpecified;
-
-        let artistesStr = t('Aucun artiste spécifié', 'Tsy misy mpihira voafaritra', 'No artist specified');
-        if (u.artistes_detail?.length > 0) {
+        const organisateurs = u.organisateurs || u.demandeur || notSpecified;
+        let artistesStr = notSpecified;
+        if (u.artistes_detail && u.artistes_detail.length > 0) {
           artistesStr = u.artistes_detail.map(a => {
-            if (a.nom && a.prenom) return `${a.prenom} ${a.nom}`;
-            if (a.nom) return a.nom;
-            return a;
+            if (a.prenom && a.nom) return `${a.prenom} ${a.nom}`;
+            return a.nom || a;
           }).join(', ');
-        } else {
-          const fallback = getArtistes(u);
-          if (fallback.length > 0) artistesStr = fallback.join(', ');
+        } else if (u.artistes) {
+          artistesStr = u.artistes;
         }
+        const lieu = u.lieu_evenement || u.adresse || notSpecified;
+        const dateEvent = u.date_evenement ? formatDateForQR(u.date_evenement) : notSpecified;
+        const evenement = u.genre_manifestation || u.nom_evenement || '';
+        const region = u.region || u.region_usager || '';
 
-        lines = [
-          `OMDA ${t('affirme un evenement', 'manamarina hetsika', 'certifies an event')} ${typePrefix}`,
-          `${t('Organisateur', 'Mpikarakara', 'Organizer')} : ${nomPrincipal}`,
+        let lines = [
+          `OMDA ${t('affirme un evenement', 'manamarina hetsika', 'certifies an event')} OCC`,
+          `${t('Organisateur', 'Mpikarakara', 'Organizer')} : ${organisateurs}`,
         ];
         if (evenement) lines.push(`${t('Evenement', 'Hetsika', 'Event')} : ${evenement}`);
-        if (artistesStr && artistesStr !== t('Aucun artiste spécifié', 'Tsy misy mpihira voafaritra', 'No artist specified')) {
+        if (artistesStr && artistesStr !== notSpecified) {
           lines.push(`${t('Artistes', 'Mpihira', 'Artists')} : ${artistesStr}`);
         }
         if (lieu) lines.push(`${t('Lieu', 'Toerana', 'Location')} : ${lieu}`);
-        if (dateEvent) lines.push(`${t('Date', 'Daty', 'Date')} : ${dateEvent}`);
-        lines.push(
-          `${t('Region', 'Faritra', 'Region')} : ${region}`,
-          `Ref : ${numeroDossier}`,
-          `© OMDA ${omdaRegion} - Tel : ${omdaPhone}`
-        );
-        break;
+        if (dateEvent && dateEvent !== notSpecified) lines.push(`${t('Date', 'Daty', 'Date')} : ${dateEvent}`);
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
       }
 
       case 'hotel': {
-        typePrefix = 'HOTEL';
-        const denomination = u.denomination || u.nom || notSpecified;
-        const adresse = u.adresse_siege || u.ville || u.adresse || '';
+        const denomination = u.denomination || u.demandeur || 'HÔTEL';
+        const adresse = u.adresse || u.siege || u.adresse_siege || '';
         const etoiles = u.etoiles ? `${u.etoiles} ${t('etoile(s)', 'kintana', 'star(s)')}` : '';
-        const region = u.region || notSpecified;
-        lines = [
-          `OMDA ${t('affirme un etablissement', 'manamarina trano', 'certifies an establishment')} ${typePrefix}`,
+        const region = u.region || u.region_usager || '';
+
+        let lines = [
+          `OMDA ${t('affirme un etablissement', 'manamarina trano', 'certifies an establishment')} HOTEL`,
           `${t('Denomination', 'Anarana', 'Name')} : ${denomination}`,
         ];
         if (adresse) lines.push(`${t('Adresse', 'Adiresy', 'Address')} : ${adresse}`);
         if (etoiles) lines.push(`${t('Categorie', 'Sokajy', 'Category')} : ${etoiles}`);
-        lines.push(
-          `${t('Region', 'Faritra', 'Region')} : ${region}`,
-          `Ref : ${numeroDossier}`,
-          `© OMDA ${omdaRegion} - Tel : ${omdaPhone}`
-        );
-        break;
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
       }
 
       case 'grand-surface': {
-        typePrefix = 'MAGASIN';
-        const denomination = u.denomination || u.nom || notSpecified;
-        const adresse = u.adresse_siege || u.ville || u.adresse || '';
+        const denomination = u.denomination || u.demandeur || '';
+        const adresse = u.adresse || u.siege || u.adresse_siege || '';
         const nb = u.nombre_magasins || 0;
-        const region = u.region || notSpecified;
-        lines = [
-          `OMDA ${t('affirme un etablissement', 'manamarina trano', 'certifies an establishment')} ${typePrefix}`,
+        const region = u.region || u.region_usager || '';
+
+        let lines = [
+          `OMDA ${t('affirme un etablissement', 'manamarina trano', 'certifies an establishment')} MAGASIN`,
           `${t('Denomination', 'Anarana', 'Name')} : ${denomination}`,
         ];
         if (adresse) lines.push(`${t('Adresse', 'Adiresy', 'Address')} : ${adresse}`);
         if (nb > 0) lines.push(`${t('Nb magasins', 'Isan\'ny fivarotana', 'Stores')} : ${nb}`);
-        lines.push(
-          `${t('Region', 'Faritra', 'Region')} : ${region}`,
-          `Ref : ${numeroDossier}`,
-          `© OMDA ${omdaRegion} - Tel : ${omdaPhone}`
-        );
-        break;
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
       }
 
       case 'bus': {
-        typePrefix = 'BUS';
-        const denomination = u.denomination || u.nom || notSpecified;
-        const adresse = u.adresse_siege || u.ville || u.adresse || '';
+        const denomination = u.denomination || u.demandeur || '';
+        const adresse = u.adresse || u.siege || u.adresse_siege || '';
         const lignes = u.lignes || '';
         const nb = u.nombre_vehicules || 0;
-        const region = u.region || notSpecified;
-        lines = [
-          `OMDA ${t('affirme une societe', 'manamarina orinasa', 'certifies a company')} ${typePrefix}`,
+        const region = u.region || u.region_usager || '';
+
+        let lines = [
+          `OMDA ${t('affirme une societe', 'manamarina orinasa', 'certifies a company')} BUS`,
           `${t('Denomination', 'Anarana', 'Name')} : ${denomination}`,
         ];
         if (adresse) lines.push(`${t('Adresse', 'Adiresy', 'Address')} : ${adresse}`);
         if (lignes) lines.push(`${t('Lignes', 'Lalana', 'Lines')} : ${lignes}`);
         if (nb > 0) lines.push(`${t('Vehicules', 'Fiara', 'Vehicles')} : ${nb}`);
-        lines.push(
-          `${t('Region', 'Faritra', 'Region')} : ${region}`,
-          `Ref : ${numeroDossier}`,
-          `© OMDA ${omdaRegion} - Tel : ${omdaPhone}`
-        );
-        break;
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
       }
 
       case 'nightclub': {
-        typePrefix = 'NIGHT CLUB';
-        const denomination = u.denomination || u.nom || notSpecified;
-        const adresse = u.adresse_siege || u.ville || u.adresse || '';
+        const denomination = u.denomination || u.demandeur || '';
+        const adresse = u.adresse || u.siege || u.adresse_siege || '';
         const jauge = u.jauge_max || 0;
         const horaires = u.horaires || '';
-        const region = u.region || notSpecified;
-        lines = [
-          `OMDA ${t('affirme un etablissement', 'manamarina trano', 'certifies an establishment')} ${typePrefix}`,
+        const region = u.region || u.region_usager || '';
+
+        let lines = [
+          `OMDA ${t('affirme un etablissement', 'manamarina trano', 'certifies an establishment')} NIGHT CLUB`,
           `${t('Denomination', 'Anarana', 'Name')} : ${denomination}`,
         ];
         if (adresse) lines.push(`${t('Adresse', 'Adiresy', 'Address')} : ${adresse}`);
         if (jauge > 0) lines.push(`${t('Jauge', 'Fahaiza-mandray', 'Capacity')} : ${jauge} ${t('pers.', 'olona', 'people')}`);
         if (horaires) lines.push(`${t('Horaires', 'Ora', 'Hours')} : ${horaires}`);
-        lines.push(
-          `${t('Region', 'Faritra', 'Region')} : ${region}`,
-          `Ref : ${numeroDossier}`,
-          `© OMDA ${omdaRegion} - Tel : ${omdaPhone}`
-        );
-        break;
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
       }
 
       case 'media': {
-        typePrefix = 'MEDIA';
-        const denomination = u.denomination || u.nom || notSpecified;
-        const adresse = u.siege || u.adresse_siege || u.ville || u.adresse || '';
+        const denomination = u.denomination || u.demandeur || '';
+        const adresse = u.siege || u.adresse_siege || u.adresse || '';
         const frequence = u.frequence || '';
         const canal = u.canal || '';
-        const region = u.region || notSpecified;
-        lines = [
-          `OMDA ${t('affirme une station', 'manamarina station', 'certifies a station')} ${typePrefix}`,
+        const region = u.region || u.region_usager || '';
+
+        let lines = [
+          `OMDA ${t('affirme une station', 'manamarina station', 'certifies a station')} MEDIA`,
           `${t('Denomination', 'Anarana', 'Name')} : ${denomination}`,
         ];
         if (adresse) lines.push(`${t('Siege', 'Foibe', 'Head office')} : ${adresse}`);
         if (frequence) lines.push(`${t('Frequence', 'Fahita', 'Frequency')} : ${frequence}`);
         if (canal) lines.push(`${t('Canal', 'Fantsona', 'Channel')} : ${canal}`);
-        lines.push(
-          `${t('Region', 'Faritra', 'Region')} : ${region}`,
-          `Ref : ${numeroDossier}`,
-          `© OMDA ${omdaRegion} - Tel : ${omdaPhone}`
-        );
-        break;
+        lines.push(buildRegionLine(region));
+        lines.push(`Ref : ${numeroDossier}`);
+        lines.push(footerLine);
+        return lines.join('\n');
       }
 
-      default: {
-        typePrefix = type || t('Inconnu', 'Tsy fantatra', 'Unknown');
-        const denomination = u.denomination || u.nom || notSpecified;
-        const region = u.region || notSpecified;
-        lines = [
-          `OMDA ${t('affirme un document', 'manamarina rakitra', 'certifies a document')} ${typePrefix}`,
-          `${t('Denomination', 'Anarana', 'Name')} : ${denomination}`,
-          `${t('Region', 'Faritra', 'Region')} : ${region}`,
-          `Ref : ${numeroDossier}`,
-          `© OMDA ${omdaRegion} - Tel : ${omdaPhone}`,
-        ];
-      }
+      default:
+        return `© OMDA - ${t('Document officiel', 'Rakitra ofisialy', 'Official document')}\nRef: ${numeroDossier}\n${footerLine}`;
     }
+  }, [t, formatDateForQR, getRegionInfo, formatPhoneNumber]);
 
-    return lines.join('\n');
-  }, [t, formatDateForQR, getArtistes]);
+  const handleCloseQrModal = useCallback(() => {
+    if (!qrDownloaded) {
+      showToast(t(
+        '⚠️ Veuillez d\'abord télécharger le QR Code avant de fermer',
+        '⚠️ Alao aloha ny QR Code vao hidio',
+        '⚠️ Please download the QR Code before closing'
+      ), 'warning');
+      return;
+    }
+    setShowQrModal(false);
+  }, [qrDownloaded, showToast, t]);
 
   // ============================================================
-  // ✅ QR CODE — un seul point d'entrée : onClick sur le doc-item
+  // HANDLER QR
   // ============================================================
   const handleGenerateQR = useCallback(async () => {
-    if (!usager) return;
+    if (!usager || !usagerType) return;
     if (qrInFlightRef.current) return;
 
-    const keyQr = `qr_genere_${usagerType}_${usager.id}`;
-    const dejaGenere = qrGenere || localStorage.getItem(keyQr) === 'true';
+    if (isLocked('qr', usagerType, usager.id)) {
+      let usagerComplet = { ...usager };
+      if (usagerType === 'occ' && usager.id) {
+        const artistesData = await fetchArtistesForEvent(usager.id);
+        if (artistesData.artistes?.length > 0) {
+          usagerComplet = {
+            ...usagerComplet,
+            artistes_detail: artistesData.artistes,
+            artistesList: artistesData.artistes,
+            artistesString: artistesData.artistesString,
+          };
+        }
+      }
+      const qrText = generateQRTextContent(usagerComplet, usagerType);
+      setQrCodeData({ usager: usagerComplet, type: usagerType, qrText });
+      setQrDownloaded(false);
+      setShowQrModal(true);
+      showToast(t(
+        '🔒 QR Code déjà généré — affichage uniquement',
+        '🔒 Efa vita ny QR Code — fampisehoana ihany',
+        '🔒 QR Code already generated — display only'
+      ), 'info');
+      return;
+    }
 
     let usagerComplet = { ...usager };
-
     if (usagerType === 'occ' && usager.id) {
       const artistesData = await fetchArtistesForEvent(usager.id);
       if (artistesData.artistes?.length > 0) {
@@ -494,13 +567,6 @@ const ConfirmationDossier = () => {
       }
     }
 
-    if (dejaGenere) {
-      const qrText = generateQRTextContent(usagerComplet, usagerType);
-      setQrCodeData({ usager: usagerComplet, type: usagerType, qrText });
-      setShowQrModal(true);
-      return;
-    }
-
     qrInFlightRef.current = true;
     setIsGeneratingQR(true);
     setNotification({ type: 'info', message: `🔄 ${t('Génération du QR Code...', 'Famokarana QR Code...', 'Generating QR Code...')}` });
@@ -508,13 +574,14 @@ const ConfirmationDossier = () => {
     try {
       const qrText = generateQRTextContent(usagerComplet, usagerType);
       setQrCodeData({ usager: usagerComplet, type: usagerType, qrText });
+      setQrDownloaded(false);
       setShowQrModal(true);
 
-      localStorage.setItem(keyQr, 'true');
+      lockDoc('qr', usagerType, usager.id);
       setQrGenere(true);
       setValidatedDossiers(prev => ({ ...prev, 'QR Code': true }));
 
-      setNotification({ type: 'success', message: `✅ ${t('QR Code généré avec succès', 'Vita ny QR Code', 'QR Code generated successfully')}` });
+      setNotification({ type: 'success', message: `✅ ${t('QR Code généré avec succès — verrouillé définitivement', 'Vita ny QR Code — mihidy tanteraka', 'QR Code generated successfully — permanently locked')}` });
       setTimeout(() => setNotification(null), 3000);
     } catch (error) {
       console.error('❌ Erreur génération QR Code:', error);
@@ -524,24 +591,21 @@ const ConfirmationDossier = () => {
       setIsGeneratingQR(false);
       qrInFlightRef.current = false;
     }
-  }, [usager, usagerType, qrGenere, fetchArtistesForEvent, generateQRTextContent, t]);
+  }, [usager, usagerType, fetchArtistesForEvent, generateQRTextContent, showToast, t]);
 
   // ============================================================
-  // ✅ CONTRAT — un seul point d'entrée : onClick sur le doc-item
+  // HANDLER CONTRAT
   // ============================================================
   const handleGenerateContrat = useCallback(async () => {
-    if (!usager) return;
+    if (!usager || !usagerType) return;
     if (contratInFlightRef.current) return;
 
-    const keyContrat = `contrat_genere_${usagerType}_${usager.id}`;
-    const dejaGenere = contratGenere || localStorage.getItem(keyContrat) === 'true';
-
-    if (dejaGenere) {
+    if (isLocked('contrat', usagerType, usager.id)) {
       showToast(t(
-        '✅ Le contrat a déjà été généré pour ce dossier',
-        '✅ Efa vita ny fifanarahana ho an\'ity rakitra ity',
-        '✅ The contract has already been generated for this file'
-      ), 'success');
+        '🔒 Contrat déjà généré — impossible de régénérer',
+        '🔒 Efa vita ny fifanarahana — tsy azo averina',
+        '🔒 Contract already generated — cannot regenerate'
+      ), 'warning');
       return;
     }
 
@@ -569,11 +633,11 @@ const ConfirmationDossier = () => {
         default: generateHotelPDF(usager, pdfData);
       }
 
-      localStorage.setItem(keyContrat, 'true');
+      lockDoc('contrat', usagerType, usager.id);
       setContratGenere(true);
       setValidatedDossiers(prev => ({ ...prev, Contrat: true }));
 
-      setNotification({ type: 'success', message: `✅ ${t('Contrat généré avec succès', 'Vita ny fifanarahana', 'Contract generated successfully')}` });
+      setNotification({ type: 'success', message: `✅ ${t('Contrat généré avec succès — verrouillé définitivement', 'Vita ny fifanarahana — mihidy tanteraka', 'Contract generated successfully — permanently locked')}` });
       setTimeout(() => setNotification(null), 3000);
     } catch (error) {
       console.error('Erreur:', error);
@@ -583,41 +647,27 @@ const ConfirmationDossier = () => {
       setIsGenerating(false);
       contratInFlightRef.current = false;
     }
-  }, [usager, usagerType, contratGenere, showToast, t]);
-
-  const generateFacturePdfOnly = useCallback(async (montantMensuel, fraisDossier, montantRetard, isRetard, uniter, soitTotal) => {
-    const pdfData = {
-      date: usager.created_at || new Date().toISOString().split('T')[0],
-      annee: new Date().getFullYear(),
-      montant: montantMensuel,
-      nombreMois: 1,
-      montantMensuel,
-      fraisDossier,
-      montantRetard,
-      isRetard,
-      uniter,
-      soitTotal,
-    };
-    await generateFacturePDF(usager, pdfData, usagerType);
-  }, [usager, usagerType]);
+  }, [usager, usagerType, showToast, t]);
 
   // ============================================================
-  // ✅ FACTURE — désormais EXACTEMENT le même principe que
-  // Contrat et QR : un seul point d'entrée (onClick sur le
-  // doc-item, jamais sur le bouton en plus), un ref-lock qui se
-  // pose en tout premier avant tout await ou setState, et une
-  // relecture directe du localStorage pour ne jamais se fier
-  // uniquement au state React.
+  // HANDLER FACTURE
   // ============================================================
   const handleGenerateFactureAvancee = useCallback(async () => {
-    if (!usager || !currentUser) {
+    if (!usager || !usagerType || !currentUser) {
       showToast(t('Utilisateur non identifié', 'Tsy fantatra ny mpampiasa', 'User not identified'), 'error');
       return;
     }
     if (factureInFlightRef.current) return;
 
-    const key = `facture_avancee_${usagerType}_${usager.id}`;
-    const dejaCreee = factureAvanceeCreee || localStorage.getItem(key) === 'true';
+    if (isLocked('facture', usagerType, usager.id)) {
+      showToast(t(
+        '🔒 Facture déjà créée — redirection',
+        '🔒 Efa vita ny faktiora — miverina any',
+        '🔒 Invoice already created — redirecting'
+      ), 'warning');
+      navigate('/generation-facture');
+      return;
+    }
 
     let montantMensuel = 0;
     let fraisDossier = 5000;
@@ -657,34 +707,7 @@ const ConfirmationDossier = () => {
         soitTotal = (montantMensuel * uniter) + fraisDossier;
     }
 
-    // ✅ Verrou posé EN TOUT PREMIER, avant même le test "dejaCreee" —
-    // il n'existe plus aucun chemin de code, dans ce composant, qui
-    // puisse déclencher un appel serveur sans passer par ce verrou.
     factureInFlightRef.current = true;
-
-    if (dejaCreee) {
-      // Facture déjà créée côté serveur : on ne fait QUE régénérer le
-      // PDF localement — aucun nouvel appel réseau, donc aucun risque
-      // de doublon serveur, exactement comme le contrat régénère son
-      // PDF sans jamais rappeler d'API.
-      setIsCreatingFacture(true);
-      try {
-        setNotification({ type: 'info', message: `🔄 ${t('Régénération du PDF de la facture...', 'Famokarana indray ny PDF faktiora...', 'Regenerating invoice PDF...')}` });
-        await generateFacturePdfOnly(montantMensuel, fraisDossier, montantRetard, isRetard, uniter, soitTotal);
-        setNotification({ type: 'success', message: `✅ ${t('PDF de la facture régénéré', 'Voaverina ny PDF faktiora', 'Invoice PDF regenerated')}` });
-        showToast(t('✅ PDF de la facture régénéré', '✅ Voaverina ny PDF faktiora', '✅ Invoice PDF regenerated'), 'success');
-        setTimeout(() => setNotification(null), 3000);
-      } catch (error) {
-        console.error('❌ Erreur régénération PDF:', error);
-        setNotification({ type: 'error', message: `❌ ${t('Erreur régénération PDF', 'Nisy olana', 'Regeneration error')}` });
-        setTimeout(() => setNotification(null), 3000);
-      } finally {
-        setIsCreatingFacture(false);
-        factureInFlightRef.current = false;
-      }
-      return;
-    }
-
     setIsCreatingFacture(true);
 
     try {
@@ -719,14 +742,10 @@ const ConfirmationDossier = () => {
       const data = await response.json();
 
       if (data.success) {
-        // ✅ Le localStorage est écrit AVANT toute autre chose, pour
-        // qu'un éventuel remontage du composant (HMR en dev, navigation
-        // rapide) voie immédiatement "déjà créée" et ne puisse plus
-        // jamais repartir sur un nouvel appel serveur pour ce dossier.
-        localStorage.setItem(key, 'true');
+        lockDoc('facture', usagerType, usager.id);
         setFactureAvanceeCreee(true);
         setValidatedDossiers(prev => ({ ...prev, FactureAvancee: true }));
-        setNotification({ type: 'success', message: `✅ ${t('Facture avancée créée avec succès', 'Vita ny faktiora mandroso', 'Advanced invoice created successfully')}` });
+        setNotification({ type: 'success', message: `✅ ${t('Facture avancée créée avec succès — verrouillée définitivement', 'Vita ny faktiora mandroso — mihidy tanteraka', 'Advanced invoice created — permanently locked')}` });
         showToast(t('✅ Facture avancée créée avec succès', '✅ Vita ny faktiora mandroso', '✅ Advanced invoice created successfully'), 'success');
 
         setTimeout(() => {
@@ -749,7 +768,7 @@ const ConfirmationDossier = () => {
       setIsCreatingFacture(false);
       factureInFlightRef.current = false;
     }
-  }, [usager, usagerType, currentUser, factureAvanceeCreee, generateFacturePdfOnly, navigate, showToast, t]);
+  }, [usager, usagerType, currentUser, navigate, showToast, t]);
 
   const allDocumentsGenerated = useCallback(() => {
     return (
@@ -759,6 +778,9 @@ const ConfirmationDossier = () => {
     );
   }, [validatedDossiers]);
 
+  // ============================================================
+  // TÉLÉCHARGEMENT QR
+  // ============================================================
   const handleDownloadQR = async () => {
     if (!qrRef.current) {
       showToast(t('QR code non disponible', 'QR code tsy misy', 'QR code not available'), 'error');
@@ -778,7 +800,10 @@ const ConfirmationDossier = () => {
       link.download = `qr-code-omda-${timestamp}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
-      showToast(t('✅ QR Code téléchargé', '✅ Vita ny fakana QR Code', '✅ QR Code downloaded'), 'success');
+
+      setQrDownloaded(true);
+
+      showToast(t('✅ QR Code téléchargé — vous pouvez maintenant fermer', '✅ Vita ny fakana QR Code — afaka mihidy izao', '✅ QR Code downloaded — you can now close'), 'success');
     } catch (error) {
       console.error('Erreur téléchargement:', error);
       showToast(t('❌ Erreur téléchargement', '❌ Nisy olana', '❌ Download error'), 'error');
@@ -861,9 +886,40 @@ const ConfirmationDossier = () => {
           .btn-retour-accueil:active { transform: translateY(0); }
           .btn-retour-accueil svg { transition: transform 0.3s ease; }
           .btn-retour-accueil:hover svg { transform: translateX(-4px); }
+          .locked-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            background: #e8f5e9;
+            border-radius: 6px;
+            color: #2e7d32;
+            font-size: 13px;
+            font-weight: bold;
+          }
+          .locked-item {
+            cursor: not-allowed !important;
+            opacity: 0.85;
+          }
           @keyframes fadeInUp {
             from { opacity: 0; transform: translateY(12px); }
             to { opacity: 1; transform: translateY(0); }
+          }
+          .qr-close-disabled {
+            opacity: 0.5;
+            cursor: not-allowed !important;
+          }
+          .qr-download-required-hint {
+            margin-top: 10px;
+            padding: 10px 14px;
+            background: #fff8e1;
+            border: 1px solid #f39c12;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #7a5c00;
+            display: flex;
+            align-items: center;
+            gap: 8px;
           }
         `}</style>
 
@@ -974,12 +1030,22 @@ const ConfirmationDossier = () => {
             </p>
 
             <div className="documents-grid">
-              {/* ✅ CONTRAT — onClick UNIQUEMENT sur le doc-item, le bouton n'a pas d'onClick propre */}
-              <div className="doc-item" onClick={handleGenerateContrat}>
-                <div className="doc-icon"><FileSignature size={24} color={color} /></div>
+              {/* CONTRAT */}
+              <div
+                className={`doc-item ${contratGenere ? 'locked-item' : ''}`}
+                onClick={contratGenere ? undefined : handleGenerateContrat}
+                style={{ cursor: contratGenere ? 'not-allowed' : 'pointer' }}
+              >
+                <div className="doc-icon">
+                  {contratGenere ? <Lock size={24} color="#27ae60" /> : <FileSignature size={24} color={color} />}
+                </div>
                 <div className="doc-info">
                   <span className="doc-name">{t('Contrat de représentation', 'Fifanarahana fisolo tena', 'Representation contract')}</span>
-                  <span className="doc-size">PDF • {t('Cliquer pour générer', 'Tsindrio hamorona', 'Click to generate')}</span>
+                  <span className="doc-size">
+                    PDF • {contratGenere
+                      ? t('Verrouillé définitivement', 'Mihidy tanteraka', 'Permanently locked')
+                      : t('Cliquer pour générer', 'Tsindrio hamorona', 'Click to generate')}
+                  </span>
                 </div>
                 <div className="doc-status">
                   {contratGenere ? (
@@ -990,46 +1056,62 @@ const ConfirmationDossier = () => {
                   ) : (
                     <span className="btn-generate" style={{ pointerEvents: 'none' }}>
                       {isGenerating
-                        ? <><Loader2 size={16} className="spinner" /> {t('Génération...', 'Famokarana...', 'Generating...')}</>
+                        ? <>{t('Génération...', 'Famokarana...', 'Generating...')}</>
                         : <><FileSignature size={16} /> {t('Générer contrat', 'Fifanarahana', 'Generate contract')}</>}
                     </span>
                   )}
                 </div>
               </div>
 
-              {/* ✅ FACTURE — même principe : onClick UNIQUEMENT sur le doc-item */}
+              {/* FACTURE */}
               <div
-                className="doc-item"
-                onClick={!factureAvanceeCreee ? handleGenerateFactureAvancee : undefined}
-                style={{ cursor: factureAvanceeCreee ? 'default' : 'pointer' }}
+                className={`doc-item ${factureAvanceeCreee ? 'locked-item' : ''}`}
+                onClick={factureAvanceeCreee ? undefined : handleGenerateFactureAvancee}
+                style={{ cursor: factureAvanceeCreee ? 'not-allowed' : 'pointer' }}
               >
-                <div className="doc-icon"><Receipt size={24} color={color} /></div>
+                <div className="doc-icon">
+                  {factureAvanceeCreee ? <Lock size={24} color="#27ae60" /> : <Receipt size={24} color={color} />}
+                </div>
                 <div className="doc-info">
                   <span className="doc-name">{t('Facture officielle', 'Faktiora ofisialy', 'Official invoice')}</span>
-                  <span className="doc-size">PDF • {t('Cliquer pour générer', 'Tsindrio hamorona', 'Click to generate')}</span>
+                  <span className="doc-size">
+                    PDF • {factureAvanceeCreee
+                      ? t('Verrouillée définitivement', 'Mihidy tanteraka', 'Permanently locked')
+                      : t('Cliquer pour générer', 'Tsindrio hamorona', 'Click to generate')}
+                  </span>
                 </div>
                 <div className="doc-status">
                   {factureAvanceeCreee ? (
-                    <span className="badge-success" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '1px 1px', background: '#e8f5e9', borderRadius: '6px', color: '#2e7d32' }}>
+                    <span className="badge-success" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', background: '#e8f5e9', borderRadius: '6px', color: '#2e7d32' }}>
                       <CheckCircle size={18} color="#27ae60" />
                       <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{t('Facture créée', 'Vita ny faktiora', 'Invoice created')}</span>
                     </span>
                   ) : (
                     <span className="btn-facture-avancee" style={{ pointerEvents: 'none' }}>
                       {isCreatingFacture
-                        ? <><Loader2 size={18} className="spinner" /> {t('Création...', 'Famoronana...', 'Creating...')}</>
+                        ? <>{t('Création...', 'Famoronana...', 'Creating...')}</>
                         : <><Receipt size={15} /> {t('Facture Avancée', 'Faktiora mandroso', 'Advanced Invoice')}</>}
                     </span>
                   )}
                 </div>
               </div>
 
-              {/* ✅ QR — onClick UNIQUEMENT sur le doc-item */}
-              <div className="doc-item" onClick={handleGenerateQR}>
-                <div className="doc-icon"><QrCode size={24} color={color} /></div>
+              {/* QR CODE */}
+              <div
+                className={`doc-item ${qrGenere ? 'locked-item' : ''}`}
+                onClick={handleGenerateQR}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="doc-icon">
+                  {qrGenere ? <Lock size={24} color="#27ae60" /> : <QrCode size={24} color={color} />}
+                </div>
                 <div className="doc-info">
                   <span className="doc-name">{t('QR Code sécurisé', 'QR Code azo antoka', 'Secure QR Code')}</span>
-                  <span className="doc-size">PNG • {t('Cliquer pour générer', 'Tsindrio hamorona', 'Click to generate')}</span>
+                  <span className="doc-size">
+                    PNG • {qrGenere
+                      ? t('Cliquer pour afficher', 'Tsindrio hampiseho', 'Click to display')
+                      : t('Cliquer pour générer', 'Tsindrio hamorona', 'Click to generate')}
+                  </span>
                 </div>
                 <div className="doc-status">
                   {qrGenere ? (
@@ -1040,7 +1122,7 @@ const ConfirmationDossier = () => {
                   ) : (
                     <span className="btn-generate" style={{ pointerEvents: 'none' }}>
                       {isGeneratingQR
-                        ? <><Loader2 size={16} className="spinner" /> {t('Génération...', 'Famokarana...', 'Generating...')}</>
+                        ? <>{t('Génération...', 'Famokarana...', 'Generating...')}</>
                         : <><QrCode size={16} /> {t('Générer code qr', 'Hamorona code qr', 'Generate QR code')}</>}
                     </span>
                   )}
@@ -1069,11 +1151,22 @@ const ConfirmationDossier = () => {
         </div>
 
         {showQrModal && qrCodeData && (
-          <div className="modal-overlay qr-modal-overlay" onClick={() => setShowQrModal(false)}>
+          <div
+            className="modal-overlay qr-modal-overlay"
+            onClick={handleCloseQrModal}
+          >
             <div className="modal-content qr-modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header qr-modal-header">
                 <h3><QrCode size={20} /> QR Code OMDA</h3>
-                <button type="button" className="modal-close" onClick={() => setShowQrModal(false)}>×</button>
+                <button
+                  type="button"
+                  className={`modal-close ${!qrDownloaded ? 'qr-close-disabled' : ''}`}
+                  onClick={handleCloseQrModal}
+                  disabled={!qrDownloaded}
+                  title={!qrDownloaded ? t('Téléchargez d\'abord le QR Code', 'Alao aloha ny QR Code', 'Download QR Code first') : ''}
+                >
+                  ×
+                </button>
               </div>
 
               <div className="qr-body">
@@ -1084,7 +1177,7 @@ const ConfirmationDossier = () => {
                         <QRCodeCanvas value={qrCodeData.qrText} size={240} bgColor="#ffffff" fgColor="#dc2626" level="L" includeMargin={true} />
                         <div className="qr-logo-styled">
                           <div className="qr-logo-circle">
-                            <img src="/logo.ico" alt="OMDA" className="qr-logo-img" />
+                            <img src="/logoqr.ico" alt="OMDA" className="qr-logo-img" />
                           </div>
                         </div>
                       </div>
@@ -1106,13 +1199,32 @@ const ConfirmationDossier = () => {
                   </div>
                 </div>
 
+                {!qrDownloaded && (
+                  <div className="qr-download-required-hint">
+                    <AlertCircle size={16} color="#f39c12" />
+                    <span>
+                      {t(
+                        'Le téléchargement du QR Code est obligatoire avant de fermer.',
+                        'Tsy maintsy alaina aloha ny QR Code vao hidio.',
+                        'Downloading the QR Code is mandatory before closing.'
+                      )}
+                    </span>
+                  </div>
+                )}
+
                 <div className="qr-actions-only">
-                  <button type="button" className="btn-cancel" onClick={() => setShowQrModal(false)}>
+                  <button
+                    type="button"
+                    className={`btn-cancel ${!qrDownloaded ? 'qr-close-disabled' : ''}`}
+                    onClick={handleCloseQrModal}
+                    disabled={!qrDownloaded}
+                    title={!qrDownloaded ? t('Téléchargez d\'abord le QR Code', 'Alao aloha ny QR Code', 'Download QR Code first') : ''}
+                  >
                     {t('Fermer', 'Hidio', 'Close')}
                   </button>
                   <button type="button" className="btn-download-qr-only" onClick={handleDownloadQR} disabled={isDownloading}>
                     {isDownloading
-                      ? <><Loader2 size={18} className="spinner" /> {t('Téléchargement...', 'Maka...', 'Downloading...')}</>
+                      ? <>{t('Téléchargement...', 'Maka...', 'Downloading...')}</>
                       : <><Download size={18} /> {t('Télécharger', 'Alaina', 'Download')}</>}
                   </button>
                 </div>

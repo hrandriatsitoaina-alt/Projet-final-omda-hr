@@ -5,14 +5,8 @@ import {
   getPdfLocale,
 } from './pdfI18n';
 
-// ============================================================
-// ✅ NOM OFFICIEL FIXE (identique dans les 3 langues)
-// ============================================================
 const OMDA_NOM_FIXE = 'OFFICE MALAGASY DU DROIT D\'AUTEUR';
 
-// ============================================================
-// FONCTIONS UTILITAIRES EXPORTÉES
-// ============================================================
 export const formatDate = (dateString, langue = 'fr') => {
   if (!dateString) return '';
   try {
@@ -43,9 +37,15 @@ export const getCurrentDate = (langue = 'fr') => {
 };
 
 // ============================================================
-// FONCTION : NOMBRE EN LETTRES (Ariary)
+// CONVERSION NOMBRE EN LETTRES (FR / EN)
+//   - 'fr' → français
+//   - 'en' → anglais
+//   - 'mg' → PAS DE CONVERSION (retourne '' pour ne rien afficher)
 // ============================================================
 const nombreEnLettres = (num, langue = 'fr') => {
+  if (langue === 'mg') return '';
+  if (langue === 'en') return nombreEnLettresAnglais(num);
+
   if (num === 0) return 'zéro';
   if (num < 0) return 'moins ' + nombreEnLettres(-num, langue);
 
@@ -66,9 +66,7 @@ const nombreEnLettres = (num, langue = 'fr') => {
       if (n < 70) {
         const tens = Math.floor(n / 10) * 10;
         const units = n % 10;
-        if (units === 1 && tens !== 80) {
-          return uniteMapping[tens] + ' et un';
-        }
+        if (units === 1 && tens !== 80) return uniteMapping[tens] + ' et un';
         return uniteMapping[tens] + (units > 0 ? '-' + uniteMapping[units] : '');
       }
       if (n < 80) {
@@ -91,34 +89,22 @@ const nombreEnLettres = (num, langue = 'fr') => {
     const hundreds = Math.floor(n / 100);
     const remainder = n % 100;
     let result = '';
-    if (hundreds === 1) {
-      result = 'cent';
-    } else {
-      result = convertHundreds(hundreds) + ' cents';
-    }
-    if (remainder > 0) {
-      result += ' ' + convertHundreds(remainder);
-    }
+    if (hundreds === 1) result = 'cent';
+    else result = convertHundreds(hundreds) + ' cents';
+    if (remainder > 0) result += ' ' + convertHundreds(remainder);
     return result;
   };
 
   const convertMilliers = (n) => {
     if (n === 0) return '';
     if (n === 1) return 'mille';
-    if (n < 1000) {
-      return convertHundreds(n);
-    }
+    if (n < 1000) return convertHundreds(n);
     const thousands = Math.floor(n / 1000);
     const remainder = n % 1000;
     let result = '';
-    if (thousands === 1) {
-      result = 'mille';
-    } else {
-      result = convertHundreds(thousands) + ' mille';
-    }
-    if (remainder > 0) {
-      result += ' ' + convertHundreds(remainder);
-    }
+    if (thousands === 1) result = 'mille';
+    else result = convertHundreds(thousands) + ' mille';
+    if (remainder > 0) result += ' ' + convertHundreds(remainder);
     return result;
   };
 
@@ -128,14 +114,9 @@ const nombreEnLettres = (num, langue = 'fr') => {
     const millions = Math.floor(n / 1000000);
     const remainder = n % 1000000;
     let result = '';
-    if (millions === 1) {
-      result = 'un million';
-    } else {
-      result = convertHundreds(millions) + ' millions';
-    }
-    if (remainder > 0) {
-      result += ' ' + convertMilliers(remainder);
-    }
+    if (millions === 1) result = 'un million';
+    else result = convertHundreds(millions) + ' millions';
+    if (remainder > 0) result += ' ' + convertMilliers(remainder);
     return result;
   };
 
@@ -145,9 +126,59 @@ const nombreEnLettres = (num, langue = 'fr') => {
 };
 
 // ============================================================
-// ✅ Secours : lit la langue stockée par ParametreContext
-// (même logique que occ_pdf.jsx)
+// CONVERSION NOMBRE EN LETTRES — ANGLAIS
 // ============================================================
+const nombreEnLettresAnglais = (num) => {
+  if (num === 0) return 'zero';
+  if (num < 0) return 'minus ' + nombreEnLettresAnglais(-num);
+
+  const ones = [
+    '', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+    'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
+    'seventeen', 'eighteen', 'nineteen'
+  ];
+  const tens = [
+    '', '', 'twenty', 'thirty', 'forty', 'fifty',
+    'sixty', 'seventy', 'eighty', 'ninety'
+  ];
+
+  const convertHundreds = (n) => {
+    if (n === 0) return '';
+    if (n < 20) return ones[n];
+    if (n < 100) {
+      const t = Math.floor(n / 10);
+      const u = n % 10;
+      return tens[t] + (u > 0 ? '-' + ones[u] : '');
+    }
+    const h = Math.floor(n / 100);
+    const remainder = n % 100;
+    let result = ones[h] + ' hundred';
+    if (remainder > 0) result += ' and ' + convertHundreds(remainder);
+    return result;
+  };
+
+  const convertThousands = (n) => {
+    if (n < 1000) return convertHundreds(n);
+    const thousands = Math.floor(n / 1000);
+    const remainder = n % 1000;
+    let result = convertHundreds(thousands) + ' thousand';
+    if (remainder > 0) result += ' ' + convertHundreds(remainder);
+    return result;
+  };
+
+  const convertMillions = (n) => {
+    if (n < 1000000) return convertThousands(n);
+    const millions = Math.floor(n / 1000000);
+    const remainder = n % 1000000;
+    let result = convertHundreds(millions) + ' million';
+    if (remainder > 0) result += ' ' + convertThousands(remainder);
+    return result;
+  };
+
+  const roundedNum = Math.round(num);
+  return convertMillions(roundedNum);
+};
+
 const lireLangueDepuisStorage = () => {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return null;
@@ -158,12 +189,8 @@ const lireLangueDepuisStorage = () => {
   }
 };
 
-// ============================================================
-// GÉNÉRATEUR PRINCIPAL : PDF BUS / TRANSPORT
-// ============================================================
 export const generateBusPDF = (usager, paymentDetails = {}, options = {}) => {
   try {
-    // ✅ Langue : priorité à options.langue, sinon localStorage, sinon 'fr'
     const langue = options.langue || lireLangueDepuisStorage() || 'fr';
     const t = createPdfT(langue);
     const locale = getPdfLocale(langue);
@@ -184,7 +211,6 @@ export const generateBusPDF = (usager, paymentDetails = {}, options = {}) => {
     let yPos = 25;
     const lineSpacing = 7.5;
 
-    // Récupération des données
     const demandeur = usager?.demandeur || '';
     const denomination = usager?.denomination || '';
     const adresseSiege = usager?.adresse_siege || '';
@@ -222,7 +248,14 @@ export const generateBusPDF = (usager, paymentDetails = {}, options = {}) => {
 
     const baseTotal = montantMensuel * uniter;
     const soitTotal = baseTotal + fraisDossier;
+
     const totalEnLettres = nombreEnLettres(Math.round(soitTotal), langue);
+
+    const totalLabel = t('Soit au Total', 'Vola total', 'Total amount');
+    const totalValue = formatNumber(soitTotal);
+    const totalLine = totalEnLettres
+      ? `${totalLabel} : ${totalValue} Ariary (${totalEnLettres})`
+      : `${totalLabel} : ${totalValue} Ariary`;
 
     const aCompterDu = usager?.a_compter_du ? formatDate(usager.a_compter_du, langue) : '';
     const echeance = usager?.echeance ? formatDate(usager.echeance, langue) : '';
@@ -231,13 +264,11 @@ export const generateBusPDF = (usager, paymentDetails = {}, options = {}) => {
     const dateSignature = usager?.date_signature ? formatDate(usager.date_signature, langue) : getCurrentDate(langue);
 
     // ========== PAGE 1 ==========
-    // ✅ Nom officiel OMDA — FIXE (identique dans les 3 langues)
     doc.setFont('times', 'bold');
     doc.setFontSize(16);
     doc.text(OMDA_NOM_FIXE, pageWidth / 2, yPos, { align: 'center' });
     yPos += 8;
 
-    // ✅ Sous-titre traduit
     doc.setFont('times', 'bold');
     doc.setFontSize(14);
     doc.text(
@@ -394,11 +425,7 @@ export const generateBusPDF = (usager, paymentDetails = {}, options = {}) => {
     yPos += lineSpacing;
 
     doc.setFont('times', 'bold');
-    doc.text(
-      `${t('Soit au Total', 'Vola total', 'Total amount')} : ${formatNumber(soitTotal)} Ariary (${totalEnLettres})`,
-      marginX + 5,
-      yPos
-    );
+    doc.text(totalLine, marginX + 5, yPos);
     doc.text(
       `( ${formatNumber(montantMensuel)} × ${uniter} + ${formatNumber(fraisDossier)} )`,
       marginX + 5,
@@ -412,7 +439,6 @@ export const generateBusPDF = (usager, paymentDetails = {}, options = {}) => {
     doc.text(`${t('Echéance', 'Faran\'ny fe-potoana', 'Due date')} : ${echeance || '……………………………………'}`, marginX + 5, yPos);
     yPos += lineSpacing;
 
-    // Signature
     doc.text(
       `${t('Je soussigné(e) Mr/Mme', 'Izaho manao sonia .', 'I, the undersigned Mr/Mrs')} ${confirmationNom || '……………………………………'}`,
       marginX + 5,
@@ -443,7 +469,6 @@ export const generateBusPDF = (usager, paymentDetails = {}, options = {}) => {
     );
     yPos += lineSpacing;
 
-    // Fait à et Signature
     doc.setFont('times', 'normal');
     doc.setFontSize(13);
     doc.text(

@@ -32,6 +32,12 @@
   flex: 1;
 }
 
+.bdd-header button
+{
+  color: #000000;
+  background: rgba(161, 177, 241, 0.349);
+}
+
 .btn-back {
   display: flex;
   align-items: center;

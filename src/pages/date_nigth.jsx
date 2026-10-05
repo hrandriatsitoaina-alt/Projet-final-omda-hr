@@ -17,6 +17,8 @@ import {
   Sparkles,
   Check,
   Circle,
+  Building2,
+  Info,
 } from 'lucide-react';
 import Header from '../components/Header';
 import MiniSidebar from '../components/MiniSidebar';
@@ -55,8 +57,14 @@ const DateNight = () => {
 
   const [anneeRecherche, setAnneeRecherche] = useState(new Date().getFullYear());
   const [regionFiltre, setRegionFiltre] = useState('');
+  const [villeFiltre, setVilleFiltre] = useState('');
   const [anneesDisponibles, setAnneesDisponibles] = useState([]);
-  const [regionsDisponibles, setRegionsDisponibles] = useState([]);
+
+  // ✅ NOUVEAU : IDs
+  const [regionId, setRegionId] = useState(null);
+  const [villeId, setVilleId] = useState(null);
+
+  const [regionsAvecVilles, setRegionsAvecVilles] = useState([]);
 
   const [statsGraph, setStatsGraph] = useState({
     bonPayeur: 0, payeurMoyen: 0, mauvaisPayeur: 0, nonPayeur: 0, total: 0,
@@ -67,7 +75,7 @@ const DateNight = () => {
   const [montantTotalRecu, setMontantTotalRecu] = useState(0);
 
   // ============================================================
-  // ✅ Utilitaires
+  // Utilitaires
   // ============================================================
   const toNumber = (val) => {
     if (val === undefined || val === null || val === '') return 0;
@@ -75,10 +83,17 @@ const DateNight = () => {
     return isNaN(n) ? 0 : n;
   };
 
-  // ✅ Extraire les mois payés d'un paiement
+  const normalizeStr = useCallback((str) => {
+    if (!str) return '';
+    return String(str)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }, []);
+
   const extraireMoisPayes = (paiement) => {
     if (!paiement) return [];
-
     if (paiement.mois_payes) {
       if (Array.isArray(paiement.mois_payes)) {
         return paiement.mois_payes.filter(m => typeof m === 'number' && m >= 1 && m <= 12);
@@ -92,23 +107,15 @@ const DateNight = () => {
         } catch (e) { /* ignore */ }
       }
     }
-
-    if (paiement.mois) {
-      return [paiement.mois];
-    }
-
+    if (paiement.mois) return [paiement.mois];
     return [];
   };
 
-  // ✅ Calcul du montant payé : additionne chaque ligne complète
   const calculerMontantPaye = (paiements) => {
     if (!paiements || paiements.length === 0) return 0;
     let total = 0;
     for (const p of paiements) {
-      const montant = toNumber(p.montant);
-      const fraisDossier = toNumber(p.frais_dossier);
-      const montantRetard = toNumber(p.montant_retard);
-      total += montant + fraisDossier + montantRetard;
+      total += toNumber(p.montant) + toNumber(p.frais_dossier) + toNumber(p.montant_retard);
     }
     return total;
   };
@@ -122,14 +129,29 @@ const DateNight = () => {
     return phone;
   };
 
-  const loadRegions = useCallback(async () => {
+  // ============================================================
+  // API : régions AVEC villes
+  // ============================================================
+  const loadRegionsAvecVilles = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/regions`);
-      if (response.data.success) setRegionsDisponibles(response.data.regions || []);
-      else setRegionsDisponibles([]);
+      const response = await axios.get(`${API_URL}/regions/avec-villes`);
+      if (response.data.success && Array.isArray(response.data.regions)) {
+        setRegionsAvecVilles(response.data.regions);
+        console.log('✅ Régions chargées:', response.data.regions.length);
+        response.data.regions.forEach((r) => {
+          console.log(`   📍 ${r.nom} (id=${r.id}) → ${(r.villes || []).map(v => `${v.nom}(id=${v.id})`).join(', ')}`);
+        });
+        return;
+      }
+      const fallback = await axios.get(`${API_URL}/regions`);
+      if (fallback.data.success) {
+        setRegionsAvecVilles(
+          (fallback.data.regions || []).map((r) => ({ ...r, villes: [] }))
+        );
+      }
     } catch (error) {
-      console.error('❌ Erreur chargement régions:', error);
-      setRegionsDisponibles([]);
+      console.error('❌ Erreur régions:', error);
+      setRegionsAvecVilles([]);
     }
   }, []);
 
@@ -142,26 +164,176 @@ const DateNight = () => {
           setAnneeRecherche(response.data.annees[response.data.annees.length - 1]);
         }
       } else {
-        const currentYear = new Date().getFullYear();
-        setAnneesDisponibles([currentYear - 2, currentYear - 1, currentYear, currentYear + 1]);
+        const y = new Date().getFullYear();
+        setAnneesDisponibles([y - 2, y - 1, y, y + 1]);
       }
     } catch (error) {
-      console.error('❌ Erreur chargement années:', error);
-      const currentYear = new Date().getFullYear();
-      setAnneesDisponibles([currentYear - 2, currentYear - 1, currentYear, currentYear + 1]);
+      console.error('❌ Erreur années:', error);
+      const y = new Date().getFullYear();
+      setAnneesDisponibles([y - 2, y - 1, y, y + 1]);
     }
   }, []);
 
   // ============================================================
-  // ✅ loadData — CORRIGÉ pour mois_payes
+  // Liste plate des villes
+  // ============================================================
+  const toutesLesVilles = useMemo(() => {
+    const liste = [];
+    regionsAvecVilles.forEach((r) => {
+      const villes = Array.isArray(r.villes) ? r.villes : [];
+      villes.forEach((v) => {
+        const nomVille = String(v.nom || v.ville || '').trim();
+        if (nomVille) {
+          liste.push({
+            ville: nomVille,
+            region: r.nom,
+            quartier: v.quartier || '',
+            telephone: v.telephone || '',
+            villeId: v.id,
+            regionId: r.id,
+          });
+        }
+      });
+    });
+    return liste;
+  }, [regionsAvecVilles]);
+
+  const villesDisponibles = useMemo(() => {
+    let filtered = toutesLesVilles;
+    if (regionFiltre) {
+      filtered = filtered.filter((v) => v.region === regionFiltre);
+    }
+    const set = new Set(filtered.map((v) => v.ville));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, locale));
+  }, [toutesLesVilles, regionFiltre, locale]);
+
+  const regionDeduiteDeVille = useMemo(() => {
+    if (!villeFiltre) return '';
+    const villeNorm = normalizeStr(villeFiltre);
+    const trouvee = toutesLesVilles.find(
+      (v) => normalizeStr(v.ville) === villeNorm
+    );
+    return trouvee ? trouvee.region : '';
+  }, [villeFiltre, toutesLesVilles, normalizeStr]);
+
+  const regionEffective = useMemo(() => {
+    if (villeFiltre && regionDeduiteDeVille) {
+      return regionDeduiteDeVille;
+    }
+    return regionFiltre || '';
+  }, [villeFiltre, regionDeduiteDeVille, regionFiltre]);
+
+  // ============================================================
+  // Handlers région / ville
+  // ============================================================
+  const handleRegionChange = (value) => {
+    setRegionFiltre(value);
+
+    const regionTrouvee = regionsAvecVilles.find((r) => r.nom === value);
+    setRegionId(regionTrouvee ? regionTrouvee.id : null);
+
+    if (value && villeFiltre) {
+      const villeNorm = normalizeStr(villeFiltre);
+      const appartient = toutesLesVilles.some(
+        (v) => normalizeStr(v.ville) === villeNorm && v.region === value
+      );
+      if (!appartient) {
+        setVilleFiltre('');
+        setVilleId(null);
+      }
+    }
+
+    if (!value) {
+      setRegionId(null);
+    }
+
+    setCurrentPage(1);
+  };
+
+  const handleVilleChange = (value) => {
+    setVilleFiltre(value);
+
+    if (value) {
+      const villeNorm = normalizeStr(value);
+      const trouvee = toutesLesVilles.find(
+        (v) => normalizeStr(v.ville) === villeNorm
+      );
+      if (trouvee) {
+        setVilleId(trouvee.villeId);
+        if (trouvee.region !== regionFiltre) {
+          setRegionFiltre(trouvee.region);
+          setRegionId(trouvee.regionId);
+        } else if (!regionId) {
+          setRegionId(trouvee.regionId);
+        }
+      }
+    } else {
+      setVilleId(null);
+    }
+    setCurrentPage(1);
+  };
+
+  // ============================================================
+  // Match ville — priorité ID
+  // ============================================================
+  const matchVille = useCallback((usager, vId, vNom) => {
+    if (vId) {
+      return usager.ville_id === vId;
+    }
+    if (!vNom || vNom.trim() === '') return true;
+    const villeNorm = normalizeStr(vNom);
+    if (!villeNorm) return true;
+
+    const champs = [
+      usager.ville_nom,
+      usager.ville,
+      usager.adresse_siege,
+      usager.adresse,
+    ]
+      .filter(Boolean)
+      .map((c) => normalizeStr(c));
+
+    return champs.some(
+      (c) => c === villeNorm || c.includes(villeNorm) || villeNorm.includes(c)
+    );
+  }, [normalizeStr]);
+
+  // ============================================================
+  // Match région — priorité ID
+  // ============================================================
+  const matchRegion = useCallback((usager, rId, rNom) => {
+    if (rId) {
+      return usager.region_id === rId;
+    }
+    if (!rNom || rNom.trim() === '') return true;
+    const regionNorm = normalizeStr(rNom);
+    const uRegion = normalizeStr(usager.region_nom || usager.region);
+    if (!uRegion) return true;
+    return (
+      uRegion === regionNorm ||
+      uRegion.includes(regionNorm) ||
+      regionNorm.includes(uRegion)
+    );
+  }, [normalizeStr]);
+
+  // ============================================================
+  // loadData
   // ============================================================
   const loadData = useCallback(async () => {
     setLoading(true);
     setApiError(null);
     try {
-      const usagersResponse = await axios.get(`${API_URL}/usagers/paiements/nightclub`);
+      const params = new URLSearchParams();
+      if (regionId) params.append('region_id', regionId);
+      if (villeId) params.append('ville_id', villeId);
+
+      const url = `${API_URL}/usagers/paiements/nightclub${params.toString() ? '?' + params.toString() : ''}`;
+
+      console.log('📡 API Nightclub :', url);
+      console.log('   📍 regionId :', regionId, '| villeId :', villeId);
+
+      const usagersResponse = await axios.get(url);
       let usagersData = [];
-      let paiements = [];
 
       if (usagersResponse.data.success && usagersResponse.data.usagers) {
         usagersData = usagersResponse.data.usagers;
@@ -174,22 +346,24 @@ const DateNight = () => {
             );
           }
         } catch (err) {
-          console.error('❌ Erreur chargement usagers généraux:', err);
+          console.error('❌ Erreur fallback nightclub:', err);
         }
       }
+
+      console.log(`🎵 ${usagersData.length} night clubs chargés`);
+      usagersData.forEach((u) => {
+        console.log(`   #${u.id} | "${u.denomination}" | region_id=${u.region_id} ville_id=${u.ville_id} | region="${u.region_nom || u.region}"`);
+      });
 
       if (usagersData.length === 0) {
         setUsagers([]);
         setFilteredUsagers([]);
         setLoading(false);
-        setApiError(t(
-          'Aucun night club trouvé',
-          'Tsy misy club alina hita',
-          'No night club found'
-        ));
+        setApiError(t('Aucun night club trouvé', 'Tsy misy club alina hita', 'No night club found'));
         return;
       }
 
+      let paiements = [];
       try {
         const paiementsResponse = await axios.get(`${API_URL}/paiements/tous`);
         if (paiementsResponse.data.success) {
@@ -199,7 +373,6 @@ const DateNight = () => {
         console.warn('⚠️ Erreur chargement paiements:', err);
       }
 
-      // ✅ Fusion usager + paiements en tenant compte de mois_payes
       const usagersWithYearData = usagersData.map((usager) => {
         const paiementsPourAnnee = paiements
           .filter((p) =>
@@ -210,7 +383,6 @@ const DateNight = () => {
           )
           .sort((a, b) => (a.mois || 0) - (b.mois || 0));
 
-        // ✅ Fusionner tous les mois_payes de toutes les lignes
         const moisPayesSet = new Set();
         for (const p of paiementsPourAnnee) {
           const mois = extraireMoisPayes(p);
@@ -220,23 +392,38 @@ const DateNight = () => {
         }
         const moisPayes = Array.from(moisPayesSet).sort((a, b) => a - b);
 
-        // ✅ Montant total payé
-        const montantTotalPaye = calculerMontantPaye(paiementsPourAnnee);
-
         return {
           ...usager,
           moisPayes: moisPayes,
           moisPayesAnnee: paiementsPourAnnee,
           totalMoisPayesAnnee: moisPayes.length,
           anneeCourante: anneeRecherche,
-          montant_total_paye: montantTotalPaye,
+          montant_total_paye: calculerMontantPaye(paiementsPourAnnee),
         };
       });
 
-      let filtered = [...usagersWithYearData];
-      if (regionFiltre) filtered = filtered.filter((u) => u.region === regionFiltre);
-
       setUsagers(usagersWithYearData);
+
+      // ✅ FILTRE FINAL côté client
+      let filtered = [...usagersWithYearData];
+
+      if (villeId || villeFiltre) {
+        const filteredByVille = filtered.filter((u) => matchVille(u, villeId, villeFiltre));
+
+        if (filteredByVille.length > 0) {
+          filtered = filteredByVille;
+          console.log(`✅ Ville "${villeFiltre}" (id=${villeId}) → ${filtered.length} usager(s)`);
+        } else if (regionId || regionEffective) {
+          filtered = filtered.filter((u) => matchRegion(u, regionId, regionEffective));
+          console.log(`⚠️  Ville sans résultat → repli région "${regionEffective}" (id=${regionId}) → ${filtered.length} usager(s)`);
+        } else {
+          filtered = [];
+        }
+      } else if (regionId || regionEffective) {
+        filtered = filtered.filter((u) => matchRegion(u, regionId, regionEffective));
+        console.log(`✅ Région "${regionEffective}" (id=${regionId}) → ${filtered.length} usager(s)`);
+      }
+
       setFilteredUsagers(filtered);
       updateStats(filtered);
 
@@ -253,7 +440,7 @@ const DateNight = () => {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anneeRecherche, regionFiltre]);
+  }, [anneeRecherche, regionId, villeId, regionEffective, villeFiltre, normalizeStr, matchVille, matchRegion]);
 
   const updateStats = (data) => {
     setStatsGraph({
@@ -265,26 +452,15 @@ const DateNight = () => {
     });
   };
 
-  const filterByRegion = useCallback(() => {
-    let filtered = [...usagers];
-    if (regionFiltre) filtered = filtered.filter((u) => u.region === regionFiltre);
-    setFilteredUsagers(filtered);
-    updateStats(filtered);
-    setCurrentPage(1);
-  }, [usagers, regionFiltre]);
-
   useEffect(() => {
-    loadRegions();
+    loadRegionsAvecVilles();
     loadAnnees();
-  }, [loadRegions, loadAnnees]);
+  }, [loadRegionsAvecVilles, loadAnnees]);
 
   useEffect(() => {
     if (anneeRecherche) loadData();
-  }, [anneeRecherche, loadData]);
-
-  useEffect(() => {
-    if (usagers.length > 0) filterByRegion();
-  }, [regionFiltre, usagers, filterByRegion]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anneeRecherche, regionId, villeId]);
 
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
@@ -293,7 +469,6 @@ const DateNight = () => {
 
   const goToPage = (page) => setCurrentPage(page);
 
-  const handleRegionChange = (value) => setRegionFiltre(value);
   const handleAnneeChange = (value) => {
     setAnneeRecherche(parseInt(value));
     setCurrentPage(1);
@@ -302,8 +477,10 @@ const DateNight = () => {
   const resetFilters = () => {
     setAnneeRecherche(new Date().getFullYear());
     setRegionFiltre('');
+    setVilleFiltre('');
+    setRegionId(null);
+    setVilleId(null);
     setCurrentPage(1);
-    loadData();
   };
 
   const refreshData = () => loadData();
@@ -342,6 +519,36 @@ const DateNight = () => {
 
   const handleRetour = () => navigate('/autre-usager');
 
+  // ============================================================
+  // Message info contextuel
+  // ============================================================
+  const infoMessage = useMemo(() => {
+    if (!villeFiltre) return null;
+
+    const nbResultats = filteredUsagers.length;
+    const villeMatche = usagers.some((u) => matchVille(u, villeId, villeFiltre));
+
+    if (villeMatche && regionDeduiteDeVille) {
+      return {
+        icon: Info,
+        text: t(
+          `Ville "${villeFiltre}" → Région "${regionDeduiteDeVille}". ${nbResultats} night club(s) trouvé(s).`,
+          `Tanàna "${villeFiltre}" → Faritra "${regionDeduiteDeVille}". ${nbResultats} club alina hita.`,
+          `City "${villeFiltre}" → Region "${regionDeduiteDeVille}". ${nbResultats} night club(s) found.`
+        ),
+      };
+    }
+
+    return {
+      icon: AlertCircle,
+      text: t(
+        `Ville "${villeFiltre}" sélectionnée. Aucun night club ne correspond exactement — affichage de la région "${regionEffective || '—'}".`,
+        `Tanàna "${villeFiltre}" voafidy. Tsy misy club alina mifanaraka tsara — aseho ny faritra "${regionEffective || '—'}".`,
+        `City "${villeFiltre}" selected. No night club matches exactly — showing region "${regionEffective || '—'}".`
+      ),
+    };
+  }, [villeFiltre, villeId, regionDeduiteDeVille, regionEffective, filteredUsagers.length, usagers, matchVille, t]);
+
   return (
     <>
       <Header />
@@ -360,7 +567,7 @@ const DateNight = () => {
         )}
 
         <div className="grandsurface-container">
-          {/* ===== EN-TÊTE ===== */}
+          {/* EN-TÊTE */}
           <div className="page-header">
             <div className="header-left">
               <h1>
@@ -381,7 +588,7 @@ const DateNight = () => {
             </button>
           </div>
 
-          {/* ===== FILTRES ===== */}
+          {/* FILTRES */}
           <div className="filters-container">
             <div className="filters-row">
               <div className="filter-item">
@@ -413,13 +620,31 @@ const DateNight = () => {
                   className="form-select"
                 >
                   <option value="">{t('Toutes', 'Rehetra', 'All')}</option>
-                  {regionsDisponibles && regionsDisponibles.length > 0 ? (
-                    regionsDisponibles.map((region, index) => (
-                      <option key={index} value={region.nom || region}>{region.nom || region}</option>
+                  {regionsAvecVilles && regionsAvecVilles.length > 0 ? (
+                    regionsAvecVilles.map((region) => (
+                      <option key={region.id} value={region.nom}>{region.nom}</option>
                     ))
                   ) : (
                     <option value="" disabled>{t('Aucune', 'Tsy misy', 'None')}</option>
                   )}
+                </select>
+              </div>
+
+              <div className="filter-item">
+                <label htmlFor="villeSelect">
+                  <Building2 size={14} className="filter-icon" /> {t('Ville', 'Tanàna', 'City')}
+                </label>
+                <select
+                  id="villeSelect"
+                  value={villeFiltre}
+                  onChange={(e) => handleVilleChange(e.target.value)}
+                  className="form-select"
+                  disabled={villesDisponibles.length === 0}
+                >
+                  <option value="">{t('Toutes', 'Rehetra', 'All')}</option>
+                  {villesDisponibles.map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
                 </select>
               </div>
 
@@ -429,22 +654,39 @@ const DateNight = () => {
                   <button className="btn-reset" onClick={resetFilters}>
                     <RotateCcw size={16} /> {t('Réinit.', 'Averina', 'Reset')}
                   </button>
-                  <button className="btn-refresh" onClick={refreshData}>
-                    <RefreshCw size={16} /> {t('Rafraîchir', 'Havaozy', 'Refresh')}
+                  <button
+                    className="btn-refresh"
+                    onClick={refreshData}
+                    title={t('Rafraîchir', 'Havaozy', 'Refresh')}
+                    aria-label={t('Rafraîchir', 'Havaozy', 'Refresh')}
+                  >
+                    <RefreshCw size={16} />
                   </button>
                 </div>
               </div>
             </div>
+
+            {infoMessage && (
+              <div className="gs-info-message">
+                <infoMessage.icon size={16} />
+                <span>{infoMessage.text}</span>
+              </div>
+            )}
           </div>
 
-          {/* ===== INDICATEUR ===== */}
+          {/* INDICATEUR */}
           <div className="indicator-bar">
             <span className="indicator-item">
               <Calendar size={14} className="indicator-icon" /> {t('Année', 'Taona', 'Year')} : <strong>{anneeRecherche}</strong>
             </span>
-            {regionFiltre && (
+            {regionEffective && (
               <span className="indicator-item">
-                <MapPin size={14} className="indicator-icon" /> {t('Région', 'Faritra', 'Region')} : <strong>{regionFiltre}</strong>
+                <MapPin size={14} className="indicator-icon" /> {t('Région', 'Faritra', 'Region')} : <strong>{regionEffective}</strong>
+              </span>
+            )}
+            {villeFiltre && (
+              <span className="indicator-item">
+                <Building2 size={14} className="indicator-icon" /> {t('Ville', 'Tanàna', 'City')} : <strong>{villeFiltre}</strong>
               </span>
             )}
             <span className="indicator-item">
@@ -455,7 +697,7 @@ const DateNight = () => {
             </span>
           </div>
 
-          {/* ===== TABLEAU ===== */}
+          {/* TABLEAU */}
           <div className="table-wrapper">
             {loading ? (
               <div className="loading-state">
@@ -473,7 +715,15 @@ const DateNight = () => {
             ) : currentUsagers.length === 0 ? (
               <div className="empty-state">
                 <AlertCircle size={32} />
-                <p>{t('Aucun night club trouvé', 'Tsy misy club alina hita', 'No night club found')}</p>
+                <p>
+                  {villeFiltre
+                    ? t(
+                        `Aucun night club trouvé pour la ville "${villeFiltre}"`,
+                        `Tsy misy club alina hita ho an'ny tanàna "${villeFiltre}"`,
+                        `No night club found for city "${villeFiltre}"`
+                      )
+                    : t('Aucun night club trouvé', 'Tsy misy club alina hita', 'No night club found')}
+                </p>
                 <button className="btn-retry" onClick={refreshData}>
                   <RefreshCw size={16} /> {t('Réessayer', 'Andramo', 'Retry')}
                 </button>
@@ -516,6 +766,9 @@ const DateNight = () => {
                       <th style={{ minWidth: '110px', whiteSpace: 'nowrap' }}>
                         {t('Région', 'Faritra', 'Region')}
                       </th>
+                      <th style={{ minWidth: '110px', whiteSpace: 'nowrap' }}>
+                        {t('Ville', 'Tanàna', 'City')}
+                      </th>
                       <th style={{ minWidth: '90px', whiteSpace: 'nowrap' }}>
                         {t('Jauge Max', 'Fahaiza-mandray', 'Max capacity')}
                       </th>
@@ -556,19 +809,14 @@ const DateNight = () => {
                           </td>
                           <td className="sticky-nom" style={{ whiteSpace: 'nowrap' }}>
                             <strong>{usager.denomination || usager.nom || '-'}</strong>
-                            {usager.region && (
-                              <div style={{ fontSize: '0.65em', color: '#666' }}>
-                                <MapPin size={12} style={{ display: 'inline', marginRight: '2px' }} />
-                                {usager.region}
-                              </div>
-                            )}
                           </td>
                           <td style={{ whiteSpace: 'nowrap' }}>
                             {usager.demandeur || usager.representant_par || '-'}
                           </td>
                           <td style={{ whiteSpace: 'nowrap' }}>{formatPhoneNumber(usager.telephone)}</td>
                           <td style={{ whiteSpace: 'nowrap' }}>{usager.adresse_siege || usager.adresse || '-'}</td>
-                          <td style={{ whiteSpace: 'nowrap' }}>{usager.region || '-'}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{usager.region_nom || usager.region || '-'}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{usager.ville_nom || '-'}</td>
                           <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{usager.jauge_max || '-'}</td>
                           {[...Array(12)].map((_, i) => {
                             const mois = i + 1;
@@ -610,7 +858,7 @@ const DateNight = () => {
             )}
           </div>
 
-          {/* ===== PAGINATION ===== */}
+          {/* PAGINATION */}
           {filteredUsagers.length > 0 && (
             <div className="pagination-container">
               <div className="pagination">
@@ -646,7 +894,7 @@ const DateNight = () => {
         </div>
       </main>
 
-      {/* ===== MODAL ===== */}
+      {/* MODAL */}
       {showModal && selectedUsager && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-container" onClick={(e) => e.stopPropagation()}>
@@ -685,7 +933,15 @@ const DateNight = () => {
                 </div>
                 <div className="modal-row">
                   <span>{t('Région', 'Faritra', 'Region')}</span>
-                  <strong>{selectedUsager.region || '-'}</strong>
+                  <strong>{selectedUsager.region_nom || selectedUsager.region || '-'}</strong>
+                </div>
+                <div className="modal-row">
+                  <span>{t('Ville', 'Tanàna', 'City')}</span>
+                  <strong>{selectedUsager.ville_nom || '-'}</strong>
+                </div>
+                <div className="modal-row">
+                  <span>{t('Quartier', 'Fokontany', 'Neighborhood')}</span>
+                  <strong>{selectedUsager.quartier_nom || '-'}</strong>
                 </div>
                 <div className="modal-row">
                   <span>{t('Jauge Max', 'Fahaiza-mandray', 'Max capacity')}</span>
