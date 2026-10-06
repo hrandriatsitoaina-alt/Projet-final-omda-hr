@@ -72,10 +72,9 @@ async function startServer() {
     console.log('   /api/admin/users/:id     (PUT, DELETE)');
     console.log('   /api/admin/activities    (GET, POST)\n');
 
-    app.listen(PORT, () => {
-      console.log(`🚀 Serveur démarré sur http://localhost:${PORT}`);
-      console.log(`📡 Routes disponibles sous /api/\n`);
-    });
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  });
   } catch (err) {
     console.error('❌ Erreur lors du démarrage du serveur:', err.message);
     console.error('📌 Détail complet:', err);
