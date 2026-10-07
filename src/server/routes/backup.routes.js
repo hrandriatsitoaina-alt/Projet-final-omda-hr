@@ -1,17 +1,25 @@
 // server/routes/backup.routes.js
 // ═══════════════════════════════════════════════════════════════════
 // BACKUP ROUTES — Sauvegarde / Restauration PostgreSQL
-//   • Sauvegarde auto : Lundi, Mercredi, Vendredi à 9h
+//   • Sauvegarde auto : Lundi, Mercredi, Vendredi (SANS contrainte d'heure)
 //   • RATTRAPAGE automatique : toutes les 15 min + au démarrage
 //   • Restauration avec DROP/CREATE schéma propre
 //
-//   ✅ CORRECTIONS (version fiable) :
-//   1. getDossierBackup() est maintenant DANS le try → toute erreur est journalisée
-//   2. Verrou anti-doublon (cron 9h + rattrapage 9h00 ne se lancent plus en même temps)
-//   3. created_at est écrit explicitement par Node → plus de décalage de fuseau horaire
-//   4. Dump écrit dans un fichier .tmp puis renommé → un échec n'écrase jamais une bonne sauvegarde
-//   5. Erreurs d'INSERT dans l'historique affichées en détail dans la console
-//   6. Après un échec, nouvelle tentative seulement après 30 min (pas de spam dans l'historique)
+//   ✅ CORRECTIONS (version finale v3) :
+//   1. getDossierBackup() dans le try
+//   2. Verrou anti-doublon
+//   3. created_at écrit explicitement par Node
+//   4. Dump dans .tmp puis renommage
+//   5. Erreurs d'INSERT détaillées
+//   6. Après échec, retente après 30 min
+//   7. 🔧 SUPPRESSION de la contrainte 9h : la sauvegarde auto doit
+//      simplement exister LE JOUR planifié (Lun/Mer/Ven), peu importe
+//      l'heure. Le rattrapage la déclenche dès qu'il détecte qu'on est
+//      un jour planifié sans sauvegarde pour ce jour.
+//   8. 🔧 Le cron "minuit" marque le début de journée ; le rattrapage
+//      (toutes les 15 min) fait tout le travail.
+//   9. 🔧 Plus de comparaison à "dernier jour planifié à 9h" → on
+//      compare à "début du jour planifié courant".
 // ═══════════════════════════════════════════════════════════════════
 const express = require('express');
 const router = express.Router();
@@ -37,14 +45,13 @@ const DB_CONFIG = {
 };
 
 // ============================================================
-// JOURS DE SAUVEGARDE AUTOMATIQUE
+// JOURS DE SAUVEGARDE AUTOMATIQUE (plus d'heure imposée)
 // ============================================================
 const JOURS_SAUVEGARDE_AUTO = [1, 3, 5]; // Lundi, Mercredi, Vendredi
-const HEURE_SAUVEGARDE_AUTO = 9;
-const DELAI_RETENTE_APRES_ECHEC_MIN = 30; // minutes
+const DELAI_RETENTE_APRES_ECHEC_MIN = 30;
 
 // ============================================================
-// VERROU : empêche deux sauvegardes auto en même temps
+// VERROU
 // ============================================================
 let sauvegardeEnCours = false;
 
@@ -263,8 +270,6 @@ function nettoyerFichierSQL(cheminSource) {
 
 // ============================================================
 // JOURNALISATION
-//   ✅ created_at écrit explicitement par Node (même fuseau que les comparaisons)
-//   ✅ erreur détaillée si l'INSERT échoue (contrainte, colonne, etc.)
 // ============================================================
 async function journaliser({ type, nomFichier, cheminComplet, statut, message, userId }) {
   try {
@@ -290,22 +295,59 @@ async function journaliser({ type, nomFichier, cheminComplet, statut, message, u
 // ============================================================
 
 /**
- * Vérifie si une sauvegarde a déjà été faite AUJOURD'HUI.
+ * Retourne true si AUJOURD'HUI est un jour planifié (Lun/Mer/Ven).
  */
-async function sauvegardeDejaFaiteAujourdhui(type = 'auto') {
+function estJourPlanifie(date = new Date()) {
+  return JOURS_SAUVEGARDE_AUTO.includes(date.getDay());
+}
+
+/**
+ * Retourne le début (00:00:00.000) d'une date donnée.
+ */
+function debutDeJournee(date = new Date()) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
+ * 🔧 FIX v3 : une sauvegarde auto a-t-elle été faite AUJOURD'HUI ?
+ * C'est LA seule question à se poser pour les jours planifiés,
+ * puisqu'on n'a plus de contrainte d'heure.
+ */
+async function sauvegardeAutoFaiteAujourdhui() {
   try {
-    const debutJournee = new Date();
-    debutJournee.setHours(0, 0, 0, 0);
+    const debut = debutDeJournee();
     const result = await query(
       `SELECT COUNT(*) as count FROM backup_historique 
-       WHERE type_backup = $1 AND statut = 'succes' AND created_at >= $2`,
-      [type, debutJournee]
+       WHERE type_backup = 'auto' AND statut = 'succes' AND created_at >= $1`,
+      [debut]
     );
     return parseInt(result.rows[0].count, 10) > 0;
   } catch (error) {
-    console.error('❌ Erreur check aujourd\'hui:', error.message);
+    console.error('❌ Erreur check sauvegarde du jour:', error.message);
     return false;
   }
+}
+
+/**
+ * 🔧 FIX v3 : le dernier jour planifié (Lun/Mer/Ven) AVANT ou ÉGAL à aujourd'hui.
+ * Plus de notion d'heure.
+ */
+function getDernierJourPlanifie() {
+  const maintenant = new Date();
+
+  for (let i = 0; i < 7; i++) {
+    const jourTest = new Date(maintenant);
+    jourTest.setDate(maintenant.getDate() - i);
+    jourTest.setHours(0, 0, 0, 0);
+
+    if (JOURS_SAUVEGARDE_AUTO.includes(jourTest.getDay())) {
+      return jourTest;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -326,7 +368,7 @@ async function getDerniereSauvegardeAuto() {
 }
 
 /**
- * Y a-t-il eu un ÉCHEC auto récent ? (évite de réessayer toutes les 15 min en boucle)
+ * Y a-t-il eu un ÉCHEC auto récent ? (évite le spam)
  */
 async function echecAutoRecent() {
   try {
@@ -343,32 +385,17 @@ async function echecAutoRecent() {
 }
 
 /**
- * Calcule la date du DERNIER jour planifié (Lun/Mer/Ven à 9h) qui est <= maintenant.
- */
-function getDernierJourPlanifie() {
-  const maintenant = new Date();
-
-  for (let i = 0; i < 7; i++) {
-    const jourTest = new Date(maintenant);
-    jourTest.setDate(maintenant.getDate() - i);
-    jourTest.setHours(HEURE_SAUVEGARDE_AUTO, 0, 0, 0);
-
-    if (jourTest.getTime() > maintenant.getTime()) continue;
-
-    if (JOURS_SAUVEGARDE_AUTO.includes(jourTest.getDay())) {
-      return jourTest;
-    }
-  }
-
-  return null;
-}
-
-/**
- * DÉTERMINE SI ON DOIT LANCER LA SAUVEGARDE MAINTENANT
- *   1. Dernier jour planifié (Lun/Mer/Ven 9h <= maintenant)
- *   2. Aucune sauvegarde auto réussie → LANCER
- *   3. Dernière sauvegarde antérieure au dernier jour planifié → LANCER (rattrapage)
- *   4. Sinon → NE PAS LANCER
+ * 🔧 FIX v3 : DÉTERMINE SI ON DOIT LANCER LA SAUVEGARDE MAINTENANT.
+ *
+ * Règle simple :
+ *   - Si on est un JOUR PLANIFIÉ (Lun/Mer/Ven) ET qu'aucune sauvegarde
+ *     auto n'a été faite AUJOURD'HUI → LANCER.
+ *   - Si on est un jour NON planifié ET que le dernier jour planifié
+ *     n'a PAS eu sa sauvegarde → LANCER (rattrapage).
+ *   - Sinon → NE PAS LANCER.
+ *
+ * Plus aucune notion de "9h" : la sauvegarde peut se déclencher
+ * n'importe quand dans la journée planifiée.
  */
 async function doitFaireSauvegardeAuto(verbose = true) {
   const maintenant = new Date();
@@ -378,40 +405,53 @@ async function doitFaireSauvegardeAuto(verbose = true) {
   log(`\n🔍 ═══ ANALYSE DE LA SAUVEGARDE AUTO ═══`);
   log(`   📅 Maintenant : ${maintenant.toLocaleString('fr-FR')} (${joursNoms[maintenant.getDay()]})`);
 
-  const dernierJourPlanifie = getDernierJourPlanifie();
+  const jourPlanifie = estJourPlanifie(maintenant);
+  const dejaFaiteAujourdhui = await sauvegardeAutoFaiteAujourdhui();
 
-  if (!dernierJourPlanifie) {
-    log(`   ℹ️ Aucun jour planifié dans les 7 derniers jours → SKIP`);
+  log(`   📌 Jour planifié aujourd'hui ? ${jourPlanifie ? 'OUI' : 'NON'}`);
+  log(`   📌 Sauvegarde auto faite aujourd'hui ? ${dejaFaiteAujourdhui ? 'OUI' : 'NON'}`);
+
+  // Cas 1 : on est un jour planifié et pas encore de sauvegarde aujourd'hui
+  if (jourPlanifie && !dejaFaiteAujourdhui) {
+    log(`   ✅ Jour planifié sans sauvegarde → LANCER`);
+    return true;
+  }
+
+  // Cas 2 : on est un jour planifié et la sauvegarde est déjà faite
+  if (jourPlanifie && dejaFaiteAujourdhui) {
+    log(`   ℹ️ Jour planifié, sauvegarde déjà faite → SKIP`);
     return false;
   }
 
-  log(`   📅 Dernier jour planifié (${HEURE_SAUVEGARDE_AUTO}h) : ${dernierJourPlanifie.toLocaleString('fr-FR')}`);
+  // Cas 3 : jour NON planifié → vérifier si le dernier jour planifié a été couvert
+  const dernierJourPlanifie = getDernierJourPlanifie();
+  if (!dernierJourPlanifie) {
+    log(`   ℹ️ Aucun jour planifié trouvé → SKIP`);
+    return false;
+  }
+
+  log(`   📅 Dernier jour planifié : ${dernierJourPlanifie.toLocaleString('fr-FR')}`);
 
   const derniere = await getDerniereSauvegardeAuto();
-
   if (!derniere) {
-    log(`   ✅ Aucune sauvegarde auto réussie → LANCER`);
+    log(`   ✅ Aucune sauvegarde auto réussie → LANCER (rattrapage)`);
     return true;
   }
 
   const dateDerniere = new Date(derniere.created_at);
   log(`   📅 Dernière sauvegarde : ${dateDerniere.toLocaleString('fr-FR')}`);
-  log(`   📊 Fichier : ${derniere.nom_fichier} (${(derniere.taille_octets / 1024).toFixed(1)} Ko)`);
 
   if (dateDerniere.getTime() < dernierJourPlanifie.getTime()) {
-    log(`   ✅ → RATTRAPAGE NÉCESSAIRE`);
+    log(`   ✅ Dernière sauvegarde antérieure au dernier jour planifié → LANCER (rattrapage)`);
     return true;
   }
 
-  log(`   ℹ️ Sauvegarde déjà à jour → SKIP`);
+  log(`   ℹ️ Sauvegarde à jour → SKIP`);
   return false;
 }
 
 /**
  * Lance la sauvegarde automatique.
- *   ✅ Verrou anti-doublon
- *   ✅ Tout est dans le try → toute erreur est journalisée dans l'historique
- *   ✅ Écriture dans un .tmp puis renommage
  */
 async function lancerSauvegardeAutomatique(force = false) {
   if (sauvegardeEnCours) {
@@ -419,9 +459,9 @@ async function lancerSauvegardeAutomatique(force = false) {
   }
 
   if (!force) {
-    const dejaFaite = await sauvegardeDejaFaiteAujourdhui('auto');
+    const dejaFaite = await sauvegardeAutoFaiteAujourdhui();
     if (dejaFaite) {
-      return { success: false, message: 'Sauvegarde déjà effectuée aujourd\'hui' };
+      return { success: false, message: 'Sauvegarde auto déjà effectuée aujourd\'hui' };
     }
   }
 
@@ -433,7 +473,7 @@ async function lancerSauvegardeAutomatique(force = false) {
       throw new Error('PostgreSQL (pg_dump/psql) introuvable sur ce serveur');
     }
 
-    const dossier = getDossierBackup(); // ✅ maintenant dans le try
+    const dossier = getDossierBackup();
     const cheminSortie = path.join(dossier, NOM_FICHIER_AUTO);
     cheminTmp = cheminSortie + '.tmp';
 
@@ -444,7 +484,6 @@ async function lancerSauvegardeAutomatique(force = false) {
     const taille = tailleFichier(cheminTmp);
     if (taille === 0) throw new Error('Fichier de sauvegarde vide');
 
-    // Remplace l'ancienne sauvegarde seulement si la nouvelle est bonne
     if (fs.existsSync(cheminSortie)) fs.unlinkSync(cheminSortie);
     fs.renameSync(cheminTmp, cheminSortie);
     cheminTmp = null;
@@ -520,7 +559,8 @@ router.get('/backup/config', async (req, res) => {
       dossierExiste: fs.existsSync(dossier),
       joursSauvegarde: JOURS_SAUVEGARDE_AUTO,
       joursSauvegardeLabels: getJoursSauvegardeLabels(),
-      heureSauvegarde: HEURE_SAUVEGARDE_AUTO,
+      heureSauvegarde: null, // 🔧 plus d'heure imposée
+      note: 'Sauvegarde déclenchée n\'importe quand le jour planifié',
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -640,9 +680,10 @@ router.get('/backup/statut-auto-detail', async (req, res) => {
     const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
     const doitFaire = await doitFaireSauvegardeAuto(false);
     const derniereSauvegarde = await getDerniereSauvegardeAuto();
-    const dejaFaiteAujourdhui = await sauvegardeDejaFaiteAujourdhui('auto');
+    const dejaFaiteAujourdhui = await sauvegardeAutoFaiteAujourdhui();
     const dernierJourPlanifie = getDernierJourPlanifie();
     const echecRecent = await echecAutoRecent();
+    const jourPlanifie = estJourPlanifie(maintenant);
 
     res.json({
       success: true,
@@ -651,7 +692,7 @@ router.get('/backup/statut-auto-detail', async (req, res) => {
         jourSemaine: jours[maintenant.getDay()],
         heure: maintenant.getHours(),
         joursSauvegarde: JOURS_SAUVEGARDE_AUTO.map(j => jours[j]),
-        heureSauvegarde: HEURE_SAUVEGARDE_AUTO,
+        jourPlanifieAujourdhui: jourPlanifie,
         doitFaireSauvegarde: doitFaire,
         dejaFaiteAujourdhui,
         sauvegardeEnCours,
@@ -809,20 +850,28 @@ router.get('/backup/telecharger/:type', async (req, res) => {
 });
 
 // ============================================================
-// CRON PRINCIPAL — Lun/Mer/Ven à 9h PILE
+// CRON PRINCIPAL — 🔧 v3 : tous les jours à MINUIT
+//   Il ne fait rien de spécial : il sert de "top départ" de la
+//   journée. C'est le cron de rattrapage (toutes les 15 min)
+//   qui déclenchera effectivement la sauvegarde si on est un
+//   jour planifié.
 // ============================================================
-cron.schedule(`0 ${HEURE_SAUVEGARDE_AUTO} * * 1,3,5`, async () => {
-  console.log(`\n⏰ ═══ CRON 9h (Lun/Mer/Ven) ═══`);
-  try {
-    const result = await lancerSauvegardeAutomatique(false);
-    console.log(`✅ Résultat cron 9h : ${result.message}`);
-  } catch (error) {
-    console.error('❌ Erreur cron 9h:', error.message);
+cron.schedule('0 0 * * *', async () => {
+  const maintenant = new Date();
+  const jours = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+  console.log(`\n⏰ ═══ CRON MINUIT — ${jours[maintenant.getDay()]} ${maintenant.toLocaleDateString('fr-FR')} ═══`);
+  if (estJourPlanifie(maintenant)) {
+    console.log(`   📌 Jour planifié → le rattrapage va déclencher la sauvegarde`);
+  } else {
+    console.log(`   ℹ️ Jour non planifié → rien à faire`);
   }
 });
 
 // ============================================================
-// CRON RATTRAPAGE — Toutes les 15 minutes (24h/24)
+// CRON RATTRAPAGE — 🔧 v3 : toutes les 15 minutes (24h/24)
+//   C'est LUI qui déclenche réellement la sauvegarde dès qu'on
+//   est un jour planifié (Lun/Mer/Ven) et qu'aucune sauvegarde
+//   n'a encore été faite aujourd'hui.
 // ============================================================
 cron.schedule('*/15 * * * *', async () => {
   const maintenant = new Date();
@@ -832,7 +881,7 @@ cron.schedule('*/15 * * * *', async () => {
   try {
     const result = await verifierEtLancerSauvegarde();
     if (result.success) {
-      console.log(`✅ Rattrapage effectué : ${result.message}`);
+      console.log(`✅ Sauvegarde déclenchée : ${result.message}`);
     } else {
       console.log(`ℹ️ ${result.message}`);
     }
@@ -864,8 +913,9 @@ setTimeout(async () => {
 // LOGS DE DÉMARRAGE
 // ============================================================
 console.log('='.repeat(60));
-console.log(`✅ Sauvegarde auto : ${getJoursSauvegardeLabels()} à ${HEURE_SAUVEGARDE_AUTO}h`);
+console.log(`✅ Sauvegarde auto : ${getJoursSauvegardeLabels()} (n'importe quelle heure)`);
 console.log('✅ Rattrapage : toutes les 15 min (24h/24) + au démarrage');
+console.log('✅ Cron minuit : top départ de la journée');
 console.log(`✅ Dump : --schema=${DB_CONFIG.schema} uniquement`);
 console.log(`✅ Restore : DROP SCHEMA ${DB_CONFIG.schema} CASCADE + nettoyage`);
 console.log('='.repeat(60));
