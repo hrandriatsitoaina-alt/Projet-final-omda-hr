@@ -903,7 +903,7 @@ setTimeout(async () => {
       console.log(`✅ ${result.message}`);
     } else {
       console.log(`ℹ️ ${result.message}`);
-    }
+    }poou
   } catch (error) {
     console.error('❌ Erreur vérif initiale:', error.message);
   }
