@@ -1,17 +1,24 @@
-// server/database.js
+// src/server/database.js
 // ═══════════════════════════════════════════════════════════════════
 // CONFIGURATION POSTGRESQL ROBUSTE - VERSION FINALE
 // ═══════════════════════════════════════════════════════════════════
 const { Pool } = require('pg');
+const path = require('path');
 const { hashPassword, isHashed } = require('./utils/password');
-require('dotenv').config();
+
+// Le fichier .env est à la racine du projet (deux dossiers au-dessus de src/server)
+require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+
+if (!process.env.DB_PASSWORD) {
+  throw new Error('DB_PASSWORD manquant : vérifie le fichier .env à la racine du projet');
+}
 
 // ============================================================
 // POOL POSTGRESQL - CONFIGURATION ANTI-TIMEOUT
 // ============================================================
 const pool = new Pool({
   user: process.env.DB_USER || 'omda_user',
-  password: process.env.DB_PASSWORD || 'Omda2026',
+  password: process.env.DB_PASSWORD,
   host: process.env.DB_HOST || '127.0.0.1',
   port: parseInt(process.env.DB_PORT || '5432', 10),
   database: process.env.DB_NAME || 'omda_db',
@@ -158,8 +165,8 @@ async function initDB() {
     // ============================================================
     try {
       const columnsCheck = await client.query(`
-        SELECT column_name 
-        FROM information_schema.columns 
+        SELECT column_name
+        FROM information_schema.columns
         WHERE table_name = 'regions' AND column_name = 'ville'
       `);
 
@@ -690,10 +697,10 @@ async function initDB() {
       }
 
       const indexesResult = await client.query(`
-        SELECT indexname 
-        FROM pg_indexes 
-        WHERE tablename = 'facture_usager' 
-          AND indexdef LIKE '%UNIQUE%' 
+        SELECT indexname
+        FROM pg_indexes
+        WHERE tablename = 'facture_usager'
+          AND indexdef LIKE '%UNIQUE%'
           AND indexdef LIKE '%ref_omda%'
       `);
 
@@ -888,19 +895,19 @@ async function initDB() {
     for (const tableName of tablesAvecLocalisation) {
       try {
         await client.query(`
-          ALTER TABLE ${tableName} 
+          ALTER TABLE ${tableName}
           ADD COLUMN IF NOT EXISTS region_id INTEGER REFERENCES regions(id) ON DELETE SET NULL
         `);
         await client.query(`
-          ALTER TABLE ${tableName} 
+          ALTER TABLE ${tableName}
           ADD COLUMN IF NOT EXISTS ville_id INTEGER REFERENCES villes(id) ON DELETE SET NULL
         `);
         await client.query(`
-          ALTER TABLE ${tableName} 
+          ALTER TABLE ${tableName}
           ADD COLUMN IF NOT EXISTS quartier_id INTEGER
         `);
         await client.query(`
-          ALTER TABLE ${tableName} 
+          ALTER TABLE ${tableName}
           ADD COLUMN IF NOT EXISTS numero_localite VARCHAR(50)
         `);
 
@@ -935,8 +942,8 @@ async function initDB() {
 
         try {
           const colsResult = await client.query(`
-            SELECT column_name 
-            FROM information_schema.columns 
+            SELECT column_name
+            FROM information_schema.columns
             WHERE table_name = '${tableName}'
               AND column_name IN ('adresse_siege', 'adresse', 'siege', 'lieu_evenement', 'domicile')
           `);
@@ -964,7 +971,7 @@ async function initDB() {
       for (const tableName of tablesAvecLocalisation) {
         try {
           const stats = await client.query(`
-            SELECT 
+            SELECT
               COUNT(*) AS total,
               COUNT(region_id) AS avec_region,
               COUNT(ville_id) AS avec_ville
