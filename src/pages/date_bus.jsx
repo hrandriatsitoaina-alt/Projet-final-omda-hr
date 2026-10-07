@@ -24,8 +24,8 @@ import Header from '../components/Header';
 import MiniSidebar from '../components/MiniSidebar';
 import { useT } from '../hooks/useT';
 import '../styles/date_grandSurface.css';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
 
 // ✅ Normalisation du type bus
 const isBusType = (type) => {
@@ -141,7 +141,7 @@ const DateBus = () => {
   // ============================================================
   const loadRegionsAvecVilles = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/regions/avec-villes`);
+      const response = await axios.get(`${API_BASE}/regions/avec-villes`);
       if (response.data.success && Array.isArray(response.data.regions)) {
         setRegionsAvecVilles(response.data.regions);
         console.log('✅ Régions chargées:', response.data.regions.length);
@@ -150,7 +150,7 @@ const DateBus = () => {
         });
         return;
       }
-      const fallback = await axios.get(`${API_URL}/regions`);
+      const fallback = await axios.get(`${API_BASE}/regions`);
       if (fallback.data.success) {
         setRegionsAvecVilles(
           (fallback.data.regions || []).map((r) => ({ ...r, villes: [] }))
@@ -164,7 +164,7 @@ const DateBus = () => {
 
   const loadAnnees = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/paiements/annees-disponibles/bus`);
+      const response = await axios.get(`${API_BASE}/paiements/annees-disponibles/bus`);
       if (response.data.success) {
         setAnneesDisponibles(response.data.annees || []);
         if (response.data.annees.length > 0 && !response.data.annees.includes(new Date().getFullYear())) {
@@ -335,7 +335,7 @@ const DateBus = () => {
       if (regionId) params.append('region_id', regionId);
       if (villeId) params.append('ville_id', villeId);
 
-      const url = `${API_URL}/usagers/paiements/bus${params.toString() ? '?' + params.toString() : ''}`;
+      const url = `${API_BASE}/usagers/paiements/bus${params.toString() ? '?' + params.toString() : ''}`;
 
       console.log('📡 API Bus :', url);
       console.log('   📍 regionId :', regionId, '| villeId :', villeId);
@@ -348,7 +348,7 @@ const DateBus = () => {
       } else {
         // Fallback
         try {
-          const allUsagersResponse = await axios.get(`${API_URL}/usagers`);
+          const allUsagersResponse = await axios.get(`${API_BASE}/usagers`);
           if (allUsagersResponse.data.success && allUsagersResponse.data.usagers) {
             usagersData = allUsagersResponse.data.usagers.filter(
               (u) => isBusType(u.type_usager) || isBusType(u.type)
@@ -375,7 +375,7 @@ const DateBus = () => {
       // Charger tous les paiements
       let paiements = [];
       try {
-        const paiementsResponse = await axios.get(`${API_URL}/paiements/tous`);
+        const paiementsResponse = await axios.get(`${API_BASE}/paiements/tous`);
         if (paiementsResponse.data.success) {
           paiements = paiementsResponse.data.paiements || [];
         }

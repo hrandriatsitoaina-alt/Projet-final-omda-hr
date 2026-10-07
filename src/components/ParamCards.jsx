@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 // ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
 const ParamCard = () => {
   const navigate = useNavigate();
@@ -23,10 +24,10 @@ const ParamCard = () => {
   const fetchCounts = useCallback(async () => {
     try {
       const [occRes, grandSurfaceRes, mediaRes, hotelRes] = await Promise.all([
-        fetch('http://localhost:3001/api/usagers/occasionnels'),
-        fetch('http://localhost:3001/api/usagers/paiements/grand-surface'),
-        fetch('http://localhost:3001/api/usagers/paiements/media'),
-        fetch('http://localhost:3001/api/usagers/paiements/hotel'),
+        fetch(`${API_BASE}/usagers/occasionnels`),
+        fetch(`${API_BASE}/usagers/paiements/grand-surface`),
+        fetch(`${API_BASE}/usagers/paiements/media`),
+        fetch(`${API_BASE}/usagers/paiements/hotel`),
       ]);
 
       const occData = await occRes.json();

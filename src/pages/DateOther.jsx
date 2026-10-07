@@ -12,8 +12,9 @@ import Header from '../components/Header';
 import MiniSidebar from '../components/MiniSidebar';
 import { useT } from '../hooks/useT';
 import '../styles/date_grandSurface.css';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
+
 
 const TYPE_ICONS = {
   cd: Disc,
@@ -165,12 +166,12 @@ const DateOther = () => {
   // ============================================================
   const loadRegionsAvecVilles = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/regions/avec-villes`);
+      const response = await axios.get(`${API_BASE}/regions/avec-villes`);
       if (response.data.success && Array.isArray(response.data.regions)) {
         setRegionsAvecVilles(response.data.regions);
         return;
       }
-      const fallback = await axios.get(`${API_URL}/regions`);
+      const fallback = await axios.get(`${API_BASE}/regions`);
       if (fallback.data.success) {
         setRegionsAvecVilles(
           (fallback.data.regions || []).map((r) => ({ ...r, villes: [] }))
@@ -185,7 +186,7 @@ const DateOther = () => {
   // ✅ Charger les années disponibles
   const loadAnnees = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/paiements/annees-disponibles/other`);
+      const response = await axios.get(`${API_BASE}/paiements/annees-disponibles/other`);
       if (response.data.success) {
         const annees = response.data.annees || [];
         setAnneesDisponibles(annees.length > 0 ? annees : [new Date().getFullYear()]);
@@ -330,8 +331,8 @@ const DateOther = () => {
     setApiError(null);
     try {
       const [usagersRes, paiementsRes] = await Promise.all([
-        axios.get(`${API_URL}/other-usagers`),
-        axios.get(`${API_URL}/paiements/tous`).catch(() => ({ data: { success: false, paiements: [] } })),
+        axios.get(`${API_BASE}/other-usagers`),
+        axios.get(`${API_BASE}/paiements/tous`).catch(() => ({ data: { success: false, paiements: [] } })),
       ]);
 
       const paiements = paiementsRes.data?.success ? (paiementsRes.data.paiements || []) : [];

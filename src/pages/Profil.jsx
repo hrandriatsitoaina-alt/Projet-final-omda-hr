@@ -15,6 +15,7 @@ import axios from 'axios';
 // ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
 import '../styles/Profil.css';
+import { API_BASE } from '../server/api';
 
 const Profil = () => {
   const navigate = useNavigate();
@@ -72,7 +73,7 @@ const Profil = () => {
 
       if (!userId) {
         try {
-          const currentUserRes = await axios.get('http://localhost:3001/api/auth/current-user');
+          const currentUserRes = await axios.get(`${API_BASE}/auth/current-user`);
           if (currentUserRes.data.success) {
             const user = currentUserRes.data.user;
             userId = user.id;
@@ -99,7 +100,7 @@ const Profil = () => {
         return;
       }
 
-      const response = await axios.get(`http://localhost:3001/api/profile/${userId}`);
+      const response = await axios.get(`${API_BASE}/profile/${userId}`);
 
       if (response.data.success) {
         const user = response.data.user;
@@ -200,7 +201,7 @@ const Profil = () => {
         updateData.mot_de_passe = formData.mot_de_passe;
       }
 
-      const response = await axios.put(`http://localhost:3001/api/profile/${userId}`, updateData);
+      const response = await axios.put(`${API_BASE}/profile/${userId}`, updateData);
 
       if (response.data.success) {
         setMessage({

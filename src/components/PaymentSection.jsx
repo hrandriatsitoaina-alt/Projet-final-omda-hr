@@ -14,6 +14,8 @@ import {
   CartesianGrid, Legend,
 } from 'recharts';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
+
 
 const PaymentSection = () => {
   const navigate = useNavigate();
@@ -78,13 +80,13 @@ const PaymentSection = () => {
 
         const monthsKeys = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
 
-        const usagersRes = await fetch('http://localhost:3001/api/usagers', {
+        const usagersRes = await fetch(`${API_BASE}/usagers`, {
           headers: { adminToken: token },
         });
         let usagersData = await usagersRes.json();
         if (!Array.isArray(usagersData)) usagersData = usagersData.usagers || [];
 
-        const paiementsRes = await fetch('http://localhost:3001/api/paiements/tous', {
+        const paiementsRes = await fetch(`${API_BASE}/paiements/tous`, {
           headers: { adminToken: token },
         });
         const paiementsData = await paiementsRes.json();

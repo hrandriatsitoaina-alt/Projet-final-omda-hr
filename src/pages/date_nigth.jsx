@@ -24,8 +24,9 @@ import Header from '../components/Header';
 import MiniSidebar from '../components/MiniSidebar';
 import { useT } from '../hooks/useT';
 import '../styles/date_grandSurface.css';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
+
 
 const DateNight = () => {
   const navigate = useNavigate();
@@ -134,7 +135,7 @@ const DateNight = () => {
   // ============================================================
   const loadRegionsAvecVilles = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/regions/avec-villes`);
+      const response = await axios.get(`${API_BASE}/regions/avec-villes`);
       if (response.data.success && Array.isArray(response.data.regions)) {
         setRegionsAvecVilles(response.data.regions);
         console.log('✅ Régions chargées:', response.data.regions.length);
@@ -143,7 +144,7 @@ const DateNight = () => {
         });
         return;
       }
-      const fallback = await axios.get(`${API_URL}/regions`);
+      const fallback = await axios.get(`${API_BASE}/regions`);
       if (fallback.data.success) {
         setRegionsAvecVilles(
           (fallback.data.regions || []).map((r) => ({ ...r, villes: [] }))
@@ -157,7 +158,7 @@ const DateNight = () => {
 
   const loadAnnees = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/paiements/annees-disponibles/nightclub`);
+      const response = await axios.get(`${API_BASE}/paiements/annees-disponibles/nightclub`);
       if (response.data.success) {
         setAnneesDisponibles(response.data.annees || []);
         if (response.data.annees.length > 0 && !response.data.annees.includes(new Date().getFullYear())) {
@@ -327,7 +328,7 @@ const DateNight = () => {
       if (regionId) params.append('region_id', regionId);
       if (villeId) params.append('ville_id', villeId);
 
-      const url = `${API_URL}/usagers/paiements/nightclub${params.toString() ? '?' + params.toString() : ''}`;
+      const url = `${API_BASE}/usagers/paiements/nightclub${params.toString() ? '?' + params.toString() : ''}`;
 
       console.log('📡 API Nightclub :', url);
       console.log('   📍 regionId :', regionId, '| villeId :', villeId);
@@ -339,7 +340,7 @@ const DateNight = () => {
         usagersData = usagersResponse.data.usagers;
       } else {
         try {
-          const allUsagersResponse = await axios.get(`${API_URL}/usagers`);
+          const allUsagersResponse = await axios.get(`${API_BASE}/usagers`);
           if (allUsagersResponse.data.success && allUsagersResponse.data.usagers) {
             usagersData = allUsagersResponse.data.usagers.filter(
               (u) => u.type_usager === 'nightclub' || u.type === 'nightclub' || u.type_usager === 'night_club'
@@ -365,7 +366,7 @@ const DateNight = () => {
 
       let paiements = [];
       try {
-        const paiementsResponse = await axios.get(`${API_URL}/paiements/tous`);
+        const paiementsResponse = await axios.get(`${API_BASE}/paiements/tous`);
         if (paiementsResponse.data.success) {
           paiements = paiementsResponse.data.paiements || [];
         }

@@ -22,8 +22,8 @@ import Header from '../components/Header';
 import MiniSidebar from '../components/MiniSidebar';
 import { useT } from '../hooks/useT';
 import '../styles/date_grandSurface.css';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
 
 const HotelComponent = () => {
   const navigate = useNavigate();
@@ -138,7 +138,7 @@ const HotelComponent = () => {
   // ============================================================
   const loadRegions = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/regions`);
+      const response = await axios.get(`${API_BASE}/regions`);
       if (response.data.success) setRegionsDisponibles(response.data.regions || []);
       else setRegionsDisponibles([]);
     } catch (error) {
@@ -152,7 +152,7 @@ const HotelComponent = () => {
   // ============================================================
   const loadAnnees = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/paiements/annees-disponibles/hotel`);
+      const response = await axios.get(`${API_BASE}/paiements/annees-disponibles/hotel`);
       if (response.data.success) {
         setAnneesDisponibles(response.data.annees || []);
         if (response.data.annees.length > 0 && !response.data.annees.includes(new Date().getFullYear())) {
@@ -176,7 +176,7 @@ const HotelComponent = () => {
     setLoading(true);
     setApiError(null);
     try {
-      const usagersResponse = await axios.get(`${API_URL}/usagers/paiements/hotel`);
+      const usagersResponse = await axios.get(`${API_BASE}/usagers/paiements/hotel`);
       let usagersData = [];
       let paiements = [];
 
@@ -184,7 +184,7 @@ const HotelComponent = () => {
         usagersData = usagersResponse.data.usagers;
       } else {
         try {
-          const allUsagersResponse = await axios.get(`${API_URL}/usagers`);
+          const allUsagersResponse = await axios.get(`${API_BASE}/usagers`);
           if (allUsagersResponse.data.success && allUsagersResponse.data.usagers) {
             usagersData = allUsagersResponse.data.usagers.filter(
               (u) => u.type_usager === 'hotel' || u.type === 'hotel'
@@ -208,7 +208,7 @@ const HotelComponent = () => {
       }
 
       try {
-        const paiementsResponse = await axios.get(`${API_URL}/paiements/tous`);
+        const paiementsResponse = await axios.get(`${API_BASE}/paiements/tous`);
         if (paiementsResponse.data.success) {
           paiements = paiementsResponse.data.paiements || [];
         }

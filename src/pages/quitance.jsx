@@ -12,8 +12,9 @@ import { useNavigate } from 'react-router-dom';
 import '../styles/quitance.css';
 import { generateQuitancePDF } from './pdf/quitance_pdf';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
 const QUITTANCES_PAR_PAGE_PDF = 20;
 
 const Quitance = () => {
@@ -48,8 +49,6 @@ const Quitance = () => {
 
   const navigate = useNavigate();
   const pdfOptionsRef = useRef(null);
-
-  const API_BASE = `${API_URL}/api`;
 
   const moisLabels = useMemo(() => {
     if (langue === 'en') {

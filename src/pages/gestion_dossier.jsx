@@ -30,8 +30,8 @@ import { generateNightPDF } from './pdf/night_pdf';
 import { generateBusPDF } from './pdf/bus_pdf';
 import { generateFacturePDF } from './pdf/facture_pdf_g';
 import { generateBilanGlobalPDF } from './pdf/bilanGlobal_pdf';
+import { API_BASE } from '../server/api';
 
-const API_BASE = 'http://localhost:3001/api';
 
 const GestionDossier = () => {
   const navigate = useNavigate();

@@ -11,6 +11,7 @@ import '../styles/confirme-paiement.css';
 import MiniSidebar from '../components/MiniSidebar';
 // ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
 const ConfirmePaiement = () => {
   const navigate = useNavigate();
@@ -150,7 +151,7 @@ const ConfirmePaiement = () => {
 
   const fetchAnneesDisponibles = async (type) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/paiements/annees-disponibles/${type}`);
+      const response = await fetch(`${API_BASE}/api/paiements/annees-disponibles/${type}`);
       const data = await response.json();
       if (data.success && data.annees.length > 0) {
         setAnneesDisponibles(data.annees);
@@ -206,7 +207,7 @@ const ConfirmePaiement = () => {
       const typeParam = typeMap[usagerType] || usagerType;
 
       const response = await fetch(
-        `http://localhost:3001/api/usagers/${typeParam}/${usager.id}`,
+        `${API_BASE}/api/usagers/${typeParam}/${usager.id}`,
         {
           method: 'DELETE',
           headers: {
@@ -292,7 +293,7 @@ const ConfirmePaiement = () => {
 
       console.log('📤 Payload envoyé:', payload);
 
-      const response = await fetch('http://localhost:3001/api/paiements/enregistrer', {
+      const response = await fetch(`${API_BASE}/api/paiements/enregistrer`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -14,6 +14,7 @@ import { generateOccPDF } from './pdf/occ_pdf';
 import { generateFacturePDF } from './pdf/facture_pdf';
 import GenerateQRCode from '../components/GenerateQRCode';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
 const GestionContra = () => {
   const { t, langue } = useT();
@@ -74,7 +75,7 @@ const GestionContra = () => {
     const fetchCurrentUser = async () => {
       try {
         const token = localStorage.getItem('userId');
-        const response = await fetch('http://localhost:3001/api/auth/current-user', {
+        const response = await fetch(`${API_BASE}/auth/current-user`, {
           headers: {
             Authorization: token ? `Bearer ${token}` : '',
           },
@@ -225,14 +226,14 @@ const GestionContra = () => {
   // ✅ checkNouveauxUsagers mémoïsé SANS dépendances
   const checkNouveauxUsagers = useCallback(async () => {
     try {
-      const countResponse = await fetch('http://localhost:3001/api/usagers/nouveaux-compteur');
+      const countResponse = await fetch(`${API_BASE}/usagers/nouveaux-compteur`);
       const countData = await countResponse.json();
 
       if (countData.success && countData.nouveaux) {
         const nouveauxIdsTemp = {};
         for (const [type, count] of Object.entries(countData.nouveaux)) {
           if (count > 0) {
-            const idsResponse = await fetch(`http://localhost:3001/api/usagers/nouveaux-ids/${type}`);
+            const idsResponse = await fetch(`${API_BASE}/usagers/nouveaux-ids/${type}`);
             const idsData = await idsResponse.json();
             nouveauxIdsTemp[type] = idsData.success ? idsData.ids : [];
           } else {
@@ -251,8 +252,8 @@ const GestionContra = () => {
     setLoading(true);
     try {
       const [statsResponse, usagersResponse] = await Promise.all([
-        fetch('http://localhost:3001/api/paiements/stats'),
-        fetch(`http://localhost:3001/api/usagers/paiements/${selectedType}`),
+        fetch(`${API_BASE}/paiements/stats`),
+        fetch(`${API_BASE}/usagers/paiements/${selectedType}`),
       ]);
 
       const statsData = await statsResponse.json();
@@ -265,7 +266,7 @@ const GestionContra = () => {
 
         if (selectedType === 'occ') {
           try {
-            const occResponse = await fetch('http://localhost:3001/api/usagers/occasionnels');
+            const occResponse = await fetch(`${API_BASE}/usagers/occasionnels`);
             const occData = await occResponse.json();
             if (occData.success && occData.events) {
               usagersWithDetails = usagersWithDetails.map(u => {
@@ -297,7 +298,7 @@ const GestionContra = () => {
               occ: 'OCC',
             };
             const typeName = typeNameMap[selectedType] || selectedType;
-            const counterResponse = await fetch(`http://localhost:3001/api/users/dossier-counter/${currentUser?.id || 1}/${typeName}`);
+            const counterResponse = await fetch(`${API_BASE}/users/dossier-counter/${currentUser?.id || 1}/${typeName}`);
             const counterData = await counterResponse.json();
             const compteurValue = counterData.success ? counterData.compteur + 1 : u.id;
             return {
@@ -400,14 +401,14 @@ const GestionContra = () => {
     }
 
     try {
-      const response = await fetch(`http://localhost:3001/api/usagers/${typeUrl}/${usager.id}`);
+      const response = await fetch(`${API_BASE}/usagers/${typeUrl}/${usager.id}`);
       const data = await response.json();
       if (data.success && data.usager) {
         const usagerComplet = { ...usager, ...data.usager };
 
         if (type === 'occ') {
           try {
-            const occResponse = await fetch('http://localhost:3001/api/usagers/occasionnels');
+            const occResponse = await fetch(`${API_BASE}/usagers/occasionnels`);
             const occData = await occResponse.json();
             if (occData.success && occData.events) {
               const foundEvent = occData.events.find(e => e.id === usager.id);
@@ -436,7 +437,7 @@ const GestionContra = () => {
 
   const getPaiementsUsager = useCallback(async (usagerId, type) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/paiements/usager/${type}/${usagerId}`);
+      const response = await fetch(`${API_BASE}/paiements/usager/${type}/${usagerId}`);
       const data = await response.json();
       return data.success ? data.paiements : [];
     } catch (err) {
@@ -539,7 +540,7 @@ const GestionContra = () => {
       setDocuments(docs);
 
       try {
-        await fetch('http://localhost:3001/api/usagers/marquer-vu', {
+        await fetch(`${API_BASE}/usagers/marquer-vu`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ usagerId: usager.id, type: selectedType }),
@@ -579,27 +580,27 @@ const GestionContra = () => {
       const type = pdfType || selectedType;
 
       if (type === 'hotel') {
-        const response = await fetch(`http://localhost:3001/api/usagers/hotel/${usager.id}`);
+        const response = await fetch(`${API_BASE}/usagers/hotel/${usager.id}`);
         const data = await response.json();
         if (data.success && data.usager) usagerComplet = { ...usagerComplet, ...data.usager };
       } else if (type === 'grand-surface') {
-        const response = await fetch(`http://localhost:3001/api/usagers/magasin/${usager.id}`);
+        const response = await fetch(`${API_BASE}/usagers/magasin/${usager.id}`);
         const data = await response.json();
         if (data.success && data.usager) usagerComplet = { ...usagerComplet, ...data.usager };
       } else if (type === 'media') {
-        const response = await fetch(`http://localhost:3001/api/usagers/media/${usager.id}`);
+        const response = await fetch(`${API_BASE}/usagers/media/${usager.id}`);
         const data = await response.json();
         if (data.success && data.usager) usagerComplet = { ...usagerComplet, ...data.usager };
       } else if (type === 'nightclub') {
-        const response = await fetch(`http://localhost:3001/api/usagers/nightclub/${usager.id}`);
+        const response = await fetch(`${API_BASE}/usagers/nightclub/${usager.id}`);
         const data = await response.json();
         if (data.success && data.usager) usagerComplet = { ...usagerComplet, ...data.usager };
       } else if (type === 'bus') {
-        const response = await fetch(`http://localhost:3001/api/usagers/bus/${usager.id}`);
+        const response = await fetch(`${API_BASE}/usagers/bus/${usager.id}`);
         const data = await response.json();
         if (data.success && data.usager) usagerComplet = { ...usagerComplet, ...data.usager };
       } else if (type === 'occ') {
-        const response = await fetch('http://localhost:3001/api/usagers/occasionnels');
+        const response = await fetch(`${API_BASE}/usagers/occasionnels`);
         const data = await response.json();
         if (data.success && data.events) {
           const found = data.events.find(e => e.id === usager.id);
@@ -675,7 +676,7 @@ const GestionContra = () => {
         message: `🔄 ${t('Renouvellement du contrat...', 'Fanavaozana ny fifanarahana...', 'Renewing contract...')}`,
       });
 
-      const response = await fetch(`http://localhost:3001/api/contrats/renouveler/${usager.id}`, {
+      const response = await fetch(`${API_BASE}/contrats/renouveler/${usager.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: selectedType, annee: currentYear + 1 }),

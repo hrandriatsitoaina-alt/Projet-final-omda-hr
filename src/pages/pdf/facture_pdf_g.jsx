@@ -6,6 +6,7 @@ import {
   createPdfT,
   getPdfLocale,
 } from './pdfI18n';
+import { API_BASE } from '../../server/api';
 
 const NOMS_FIXES = {
   OMDA_NOM: 'OFFICE MALAGASY DU DROIT D\'AUTEUR',
@@ -175,7 +176,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
 
     let dafName = 'DAF';
     try {
-      const response = await fetch('http://localhost:3001/api/daf/name');
+      const response = await fetch(`${API_BASE}/api/daf/name`);
       const data = await response.json();
       if (data.success && data.dafName) dafName = data.dafName;
     } catch (error) {
@@ -404,7 +405,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     // Fallback API usager
     if (montantMensuel === 0 && factureData.ref_usager) {
       try {
-        const usagerResponse = await fetch(`http://localhost:3001/api/usagers/${factureData.ref_usager}`);
+        const usagerResponse = await fetch(`${API_BASE}/api/usagers/${factureData.ref_usager}`);
         const usagerData = await usagerResponse.json();
 
         if (usagerData.success && usagerData.usager) {
@@ -446,7 +447,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     // Fallback API montants
     if (montantMensuel === 0 && factureData.ref_usager) {
       try {
-        const montantResponse = await fetch(`http://localhost:3001/api/montants/usager/${factureData.ref_usager}`);
+        const montantResponse = await fetch(`${API_BASE}/api/montants/usager/${factureData.ref_usager}`);
         const montantData = await montantResponse.json();
         if (montantData.success && montantData.montant) {
           montantMensuel = parseFloat(montantData.montant) || 0;

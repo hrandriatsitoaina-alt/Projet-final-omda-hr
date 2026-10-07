@@ -16,6 +16,8 @@ import {
 } from 'recharts';
 // ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
+
 
 const MainCards = () => {
   const navigate = useNavigate();
@@ -58,7 +60,7 @@ const MainCards = () => {
         const totalPromises = statTypes.map(async (type) => {
           const apiKey = getApiKey(type.key);
           try {
-            const res = await fetch(`http://localhost:3001/api/usagers/type/${apiKey}`, {
+            const res = await fetch(`${API_BASE}/usagers/type/${apiKey}`, {
               headers: { 'adminToken': token },
             });
             const data = await res.json();

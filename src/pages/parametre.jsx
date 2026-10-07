@@ -9,8 +9,9 @@ import {
 } from 'lucide-react';
 import { useParametres } from '../context/ParametreContext';
 import '../styles/parametre.css';
+import { API_BASE } from '../server/api';
 
-const API_BASE = 'http://localhost:3001/api';
+
 
 // ============================================================
 // 🌍 TRADUCTIONS

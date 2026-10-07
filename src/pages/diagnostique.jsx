@@ -18,8 +18,8 @@ import {
 
 import '../styles/diagnostique.css';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
-const API_BASE = 'http://localhost:3001/api';
 
 const PRIORITY_ICON = { haute: '🔴', moyenne: '🟡', basse: '🟢' };
 const COLORS = ['#3d99f5', '#6bc1ff', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ff9800'];

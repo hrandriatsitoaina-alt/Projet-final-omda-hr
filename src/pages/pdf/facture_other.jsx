@@ -5,6 +5,7 @@ import {
   createPdfT,
   getPdfLocale,
 } from './pdfI18n';
+import { API_BASE } from '../../server/api';
 
 const OMDA_NOM_FIXE = 'OFFICE MALAGASY DU DROIT D\'AUTEUR';
 const OMDA_SIGLE_FIXE = '( OMDA )';
@@ -155,7 +156,7 @@ export const generateFactureOtherPDF = async (factureData, returnBlob = false, o
 
     let dafName = 'DAF';
     try {
-      const response = await fetch('http://localhost:3001/api/daf/name');
+      const response = await fetch(`${API_BASE}/api/daf/name`);
       const data = await response.json();
       if (data.success && data.dafName) dafName = data.dafName;
     } catch { /* ignore */ }

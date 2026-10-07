@@ -20,8 +20,9 @@ import Header from '../components/Header';
 import MiniSidebar from '../components/MiniSidebar';
 import { useT } from '../hooks/useT';
 import '../styles/date_grandSurface.css';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
+
 
 const DateGrandSurface = () => {
   const navigate = useNavigate();
@@ -121,7 +122,7 @@ const DateGrandSurface = () => {
   // ============================================================
   const loadRegionsAvecVilles = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/regions/avec-villes`);
+      const response = await axios.get(`${API_BASE}/regions/avec-villes`);
       if (response.data.success && Array.isArray(response.data.regions)) {
         setRegionsAvecVilles(response.data.regions);
         console.log('✅ Régions chargées:', response.data.regions.length);
@@ -130,7 +131,7 @@ const DateGrandSurface = () => {
         });
         return;
       }
-      const fallback = await axios.get(`${API_URL}/regions`);
+      const fallback = await axios.get(`${API_BASE}/regions`);
       if (fallback.data.success) {
         setRegionsAvecVilles(
           (fallback.data.regions || []).map((r) => ({ ...r, villes: [] }))
@@ -144,7 +145,7 @@ const DateGrandSurface = () => {
 
   const loadAnnees = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/paiements/annees-disponibles/grand-surface`);
+      const response = await axios.get(`${API_BASE}/paiements/annees-disponibles/grand-surface`);
       if (response.data.success) {
         setAnneesDisponibles(response.data.annees || []);
         if (response.data.annees.length > 0 && !response.data.annees.includes(new Date().getFullYear())) {
@@ -320,12 +321,12 @@ const DateGrandSurface = () => {
       if (regionId) params.append('region_id', regionId);
       if (villeId) params.append('ville_id', villeId);
 
-      const url = `${API_URL}/usagers/paiements/grand-surface${params.toString() ? '?' + params.toString() : ''}`;
+      const url = `${API_BASE}/usagers/paiements/grand-surface${params.toString() ? '?' + params.toString() : ''}`;
 
       console.log('📡 API Grand Surface :', url);
       console.log('   📍 regionId :', regionId, '| villeId :', villeId);
 
-      const paiementsResponse = await axios.get(`${API_URL}/paiements/tous`);
+      const paiementsResponse = await axios.get(`${API_BASE}/paiements/tous`);
       const usagersResponse = await axios.get(url);
 
       let paiements = [];

@@ -7,8 +7,8 @@ import React, {
   useCallback,
   useRef,
 } from 'react';
+import { API_BASE } from '../server/api';
 
-const API_BASE = 'http://localhost:3001/api';
 const LANGUES_VALIDES = ['fr', 'mg', 'en'];
 const STORAGE_KEY_LANGUE = 'app-langue';
 

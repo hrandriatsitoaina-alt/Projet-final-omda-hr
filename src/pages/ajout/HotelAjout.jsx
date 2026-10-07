@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../components/Toast';
 import { useT } from '../../hooks/useT';
+import { API_BASE } from '../../server/api';
 
 const HotelAjout = ({ onCancel }) => {
   const navigate = useNavigate();
@@ -158,7 +159,7 @@ const HotelAjout = ({ onCancel }) => {
   // ============================================================
   const loadRegionsUniques = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/regions');
+      const response = await fetch(`${API_BASE}/api/regions`);
       const result = await response.json();
       if (result.success && result.regions) {
         const nomsUniques = [...new Set(result.regions.map(r => r.nom))].sort();
@@ -178,7 +179,7 @@ const HotelAjout = ({ onCancel }) => {
       return [];
     }
     try {
-      const url = `http://localhost:3001/api/regions/villes/${encodeURIComponent(regionNom)}`;
+      const url = `${API_BASE}/api/regions/villes/${encodeURIComponent(regionNom)}`;
       const response = await fetch(url);
       const result = await response.json();
 
@@ -256,14 +257,14 @@ const HotelAjout = ({ onCancel }) => {
   const loadGlobalTotal = async () => {
     try {
       const currentYear = new Date().getFullYear();
-      const response = await fetch(`http://localhost:3001/api/hotel/total-count?year=${currentYear}`);
+      const response = await fetch(`${API_BASE}/api/hotel/total-count?year=${currentYear}`);
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
           setGlobalTotalCount(data.total || 0);
         }
       } else {
-        const fallbackResponse = await fetch('http://localhost:3001/api/usagers');
+        const fallbackResponse = await fetch(`${API_BASE}/api/usagers`);
         if (fallbackResponse.ok) {
           const usagers = await fallbackResponse.json();
           const hotelCount = usagers.filter(u => {
@@ -281,7 +282,7 @@ const HotelAjout = ({ onCancel }) => {
   const loadUserCounters = async (userId) => {
     try {
       const year = new Date().getFullYear();
-      const response = await fetch(`http://localhost:3001/api/users/counters/${userId}?year=${year}`);
+      const response = await fetch(`${API_BASE}/api/users/counters/${userId}?year=${year}`);
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -445,7 +446,7 @@ const HotelAjout = ({ onCancel }) => {
     };
 
     try {
-      const response = await fetch('http://localhost:3001/api/usagers', {
+      const response = await fetch(`${API_BASE}/api/usagers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(finalData),

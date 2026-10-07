@@ -12,6 +12,7 @@ import {
 import '../styles/gere-paiement.css';
 import MiniSidebar from '../components/MiniSidebar';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
 // ✅ Icônes par type d'usager événementiel (statiques)
 const OTHER_TYPE_ICONS = {
@@ -192,7 +193,7 @@ const GerePaiement = () => {
   // ========== CHARGEMENT ==========
   const loadRegions = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/regions');
+      const res = await fetch(`${API_BASE}/regions`);
       const data = await res.json();
       if (data.success) setRegions(data.regions);
     } catch (err) { console.error(err); }
@@ -200,14 +201,14 @@ const GerePaiement = () => {
 
   const checkNouveauxUsagers = useCallback(async () => {
     try {
-      const countRes = await fetch('http://localhost:3001/api/usagers/nouveaux-compteur');
+      const countRes = await fetch(`${API_BASE}/usagers/nouveaux-compteur`);
       const countData = await countRes.json();
       if (countData.success && countData.nouveaux) {
         const idsTemp = {};
         const typesFiltres = Object.keys(countData.nouveaux).filter(t2 => t2 !== 'occ');
         for (const type of typesFiltres) {
           if (countData.nouveaux[type] > 0) {
-            const idsRes = await fetch(`http://localhost:3001/api/usagers/nouveaux-ids/${type}`);
+            const idsRes = await fetch(`${API_BASE}/usagers/nouveaux-ids/${type}`);
             const idsData = await idsRes.json();
             idsTemp[type] = idsData.success ? idsData.ids : [];
           } else {
@@ -222,7 +223,7 @@ const GerePaiement = () => {
   const loadOtherUsagers = useCallback(async () => {
     setLoadingOther(true);
     try {
-      const res = await fetch('http://localhost:3001/api/other-usagers');
+      const res = await fetch(`${API_BASE}/other-usagers`);
       const data = await res.json();
       if (data.success) {
         setOtherUsagers(data.usagers || []);
@@ -241,12 +242,12 @@ const GerePaiement = () => {
     setLoading(true);
     setApiError(null);
     try {
-      const statsRes = await fetch('http://localhost:3001/api/paiements/stats');
+      const statsRes = await fetch(`${API_BASE}/paiements/stats`);
       const statsData = await statsRes.json();
       if (statsData.success) setStats(statsData.stats);
 
       try {
-        const paiementsRes = await fetch('http://localhost:3001/api/paiements/tous');
+        const paiementsRes = await fetch(`${API_BASE}/paiements/tous`);
         const paiementsData = await paiementsRes.json();
         if (paiementsData.success) {
           setPaiementsRaw(paiementsData.paiements || []);
@@ -263,7 +264,7 @@ const GerePaiement = () => {
         return;
       }
 
-      const url = `http://localhost:3001/api/usagers/paiements/${selectedType}`;
+      const url = `${API_BASE}/usagers/paiements/${selectedType}`;
       const usagersRes = await fetch(url);
       const usagersData = await usagersRes.json();
 
@@ -294,7 +295,7 @@ const GerePaiement = () => {
       }
 
       try {
-        const anRes = await fetch(`http://localhost:3001/api/paiements/annees-disponibles/${selectedType}`);
+        const anRes = await fetch(`${API_BASE}/paiements/annees-disponibles/${selectedType}`);
         const anData = await anRes.json();
         if (anData.success && anData.annees.length) {
           setAnneesDisponibles(anData.annees);

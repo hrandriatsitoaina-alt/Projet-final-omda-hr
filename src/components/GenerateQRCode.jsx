@@ -5,6 +5,7 @@ import html2canvas from 'html2canvas';
 import '../styles/generate-qrcode.css';
 // ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
 const GenerateQRCode = ({
   usager,
@@ -34,7 +35,7 @@ const GenerateQRCode = ({
     const fetchUserAndCounter = async () => {
       try {
         const token = localStorage.getItem('userId');
-        const userResponse = await fetch('http://localhost:3001/api/auth/current-user', {
+        const userResponse = await fetch(`${API_BASE}/auth/current-user`, {
           headers: {
             'Authorization': token ? `Bearer ${token}` : '',
           },
@@ -55,7 +56,7 @@ const GenerateQRCode = ({
 
           const typeName = typeLabels[type] || type;
           const counterResponse = await fetch(
-            `http://localhost:3001/api/users/dossier-counter/${userData.user.id}/${typeName}`
+            `${API_BASE}/users/dossier-counter/${userData.user.id}/${typeName}`
           );
           const counterData = await counterResponse.json();
           if (counterData.success) {

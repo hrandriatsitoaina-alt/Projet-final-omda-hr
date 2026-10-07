@@ -34,7 +34,7 @@ import PaiementMensuel from './pages/PaiementMensuel';
 import Parametre from './pages/parametre';
 import BaseDeDonnees from './pages/base_de_donnees';
 import Quitance from './pages/quitance';
-import RepartitionArtister from './pages/repartition_artister';
+import RepartitionArtistes from './pages/repartition_artistes';
 import Diagnostique from './pages/diagnostique';
 import OtherAjout from './pages/OtherAjout';
 import DateOther from './pages/DateOther';
@@ -87,7 +87,7 @@ function App() {
           <Route path="/Parametre_global" element={<Parametre />} />
           <Route path="/base-de-donnees" element={<BaseDeDonnees />} />
           <Route path="/quitance" element={<Quitance />} />
-          <Route path="/repartition-artistes" element={<RepartitionArtister />} />
+          <Route path="/repartition-artistes" element={<RepartitionArtistes />} />
           <Route path="/diagnostique" element={<Diagnostique />} />
           <Route path="/other-ajout" element={<OtherAjout />} />
           <Route path="/date_other" element={<DateOther />} />

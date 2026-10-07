@@ -12,8 +12,9 @@ import {
 } from 'lucide-react';
 import '../styles/gestion_bd_admin.css';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
+
 const CONFIRMATION_TRUNCATE = 'EFFACER_TOUT';
 const ROWS_PER_PAGE = 50;
 
@@ -116,7 +117,7 @@ const GestionBdAdmin = () => {
   const loadTables = useCallback(async (tk) => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/gestionbd/tables`, { headers: { adminToken: tk || token } });
+      const res = await fetch(`${API_BASE}/gestionbd/tables`, { headers: { adminToken: tk || token } });
       const data = await res.json();
       if (data.success) setTables(data.tables || []);
       else setError(data.message || 'Erreur chargement tables');
@@ -134,7 +135,7 @@ const GestionBdAdmin = () => {
       setLoadingTable(true);
       const offset = page * ROWS_PER_PAGE;
       const res = await fetch(
-        `${API_URL}/gestionbd/table/${tableName}?limit=${ROWS_PER_PAGE}&offset=${offset}`,
+        `${API_BASE}/gestionbd/table/${tableName}?limit=${ROWS_PER_PAGE}&offset=${offset}`,
         { headers: { adminToken: token } }
       );
       const data = await res.json();
@@ -157,7 +158,7 @@ const GestionBdAdmin = () => {
     try {
       setLoadingDeps(true);
       const res = await fetch(
-        `${API_URL}/gestionbd/table/${tableName}/dependencies`,
+        `${API_BASE}/gestionbd/table/${tableName}/dependencies`,
         { headers: { adminToken: token } }
       );
       const data = await res.json();
@@ -212,7 +213,7 @@ const GestionBdAdmin = () => {
       const payload = { ...editingData };
       delete payload[pk];
 
-      const res = await fetch(`${API_URL}/gestionbd/table/${tableData.table}/${editingRowId}`, {
+      const res = await fetch(`${API_BASE}/gestionbd/table/${tableData.table}/${editingRowId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify(payload),
@@ -250,7 +251,7 @@ const GestionBdAdmin = () => {
       const pk = tableData.primaryKey;
       const id = deletingRow[pk];
 
-      const res = await fetch(`${API_URL}/gestionbd/table/${tableData.table}/${id}`, {
+      const res = await fetch(`${API_BASE}/gestionbd/table/${tableData.table}/${id}`, {
         method: 'DELETE',
         headers: { adminToken: token },
       });
@@ -286,8 +287,8 @@ const GestionBdAdmin = () => {
     setIsTruncating(true);
     try {
       const url = truncateMode === 'all'
-        ? `${API_URL}/gestionbd/truncate-all`
-        : `${API_URL}/gestionbd/truncate/${truncateTarget}`;
+        ? `${API_BASE}/gestionbd/truncate-all`
+        : `${API_BASE}/gestionbd/truncate/${truncateTarget}`;
 
       const res = await fetch(url, {
         method: 'POST',
@@ -320,7 +321,7 @@ const GestionBdAdmin = () => {
   // ============================================================
   const loadPasswordStatus = useCallback(async (tk) => {
     try {
-      const res = await fetch(`${API_URL}/gestionbd/restauration/password-status`, {
+      const res = await fetch(`${API_BASE}/gestionbd/restauration/password-status`, {
         headers: { adminToken: tk || token },
       });
       const data = await res.json();
@@ -346,7 +347,7 @@ const GestionBdAdmin = () => {
 
     setIsSavingPassword(true);
     try {
-      const res = await fetch(`${API_URL}/gestionbd/restauration/set-password`, {
+      const res = await fetch(`${API_BASE}/gestionbd/restauration/set-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify({ password: newPassword, confirm: confirmPassword }),

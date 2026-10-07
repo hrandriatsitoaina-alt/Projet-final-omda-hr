@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useT } from '../hooks/useT';
 import { useToast, forceReflow } from '../components/Toast';
+import { API_BASE } from '../server/api';
 
 const ROLES = {
   SUPER_ADMIN: 'super_admin',
@@ -328,7 +329,7 @@ const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
 
   const fetchUsers = async (currentToken) => {
     try {
-      const response = await fetch('http://localhost:3001/api/admin/users', {
+      const response = await fetch(`${API_BASE}/api/admin/users`, {
         headers: { adminToken: currentToken },
       });
 
@@ -400,7 +401,7 @@ const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
 
   const fetchUsagers = async (currentToken) => {
     try {
-      const response = await fetch('http://localhost:3001/api/usagers', {
+      const response = await fetch(`${API_BASE}/api/usagers`, {
         headers: { adminToken: currentToken },
       });
       if (response.status === 403) {
@@ -427,7 +428,7 @@ const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
 
   const fetchActivities = async (currentToken) => {
     try {
-      const response = await fetch('http://localhost:3001/api/admin/activities', {
+      const response = await fetch(`${API_BASE}/api/admin/activities`, {
         headers: { adminToken: currentToken },
       });
       if (response.status === 403) {
@@ -445,7 +446,7 @@ const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
 
   const logActivity = async (action, details) => {
     try {
-      await fetch('http://localhost:3001/api/admin/activities', {
+      await fetch(`${API_BASE}/api/admin/activities`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify({ action, details, user_id: currentUserId || 1 }),
@@ -467,7 +468,7 @@ const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
       return;
     }
     try {
-      const response = await fetch('http://localhost:3001/api/admin/users', {
+      const response = await fetch(`${API_BASE}/api/admin/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify(formData),
@@ -529,7 +530,7 @@ const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
         updateData.mot_de_passe = editUserForm.mot_de_passe;
       }
 
-      const response = await fetch(`http://localhost:3001/api/admin/users/${editingUserId}`, {
+      const response = await fetch(`${API_BASE}/api/admin/users/${editingUserId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify(updateData),
@@ -583,7 +584,7 @@ const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
         role: user.role,
         statut: newStatus,
       };
-      const response = await fetch(`http://localhost:3001/api/admin/users/${user.id}`, {
+      const response = await fetch(`${API_BASE}/api/admin/users/${user.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify(updateData),
@@ -622,7 +623,7 @@ const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
     if (!ok) return;
 
     try {
-      const response = await fetch(`http://localhost:3001/api/admin/users/${id}`, {
+      const response = await fetch(`${API_BASE}/api/admin/users/${id}`, {
         method: 'DELETE',
         headers: { adminToken: token },
       });
@@ -689,7 +690,7 @@ const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
       };
       if (wantChangePwd) updateData.mot_de_passe = superAdminData.mot_de_passe;
 
-      const response = await fetch(`http://localhost:3001/api/admin/users/${currentSuperAdmin.id}`, {
+      const response = await fetch(`${API_BASE}/api/admin/users/${currentSuperAdmin.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify(updateData),
@@ -743,7 +744,7 @@ const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
     e.preventDefault();
     if (!canManageUsers || !selectedUsager) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/usagers/${selectedUsager.id}`, {
+      const response = await fetch(`${API_BASE}/api/usagers/${selectedUsager.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify({ ...editingUsagerData, type_usager: selectedUsager.type_usager }),
@@ -774,7 +775,7 @@ const AdminPanelInner = ({ onClose, adminToken: propToken, onLogout }) => {
   const handleDeleteUsager = async () => {
     if (!canManageUsers || !usagerToDelete) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/usagers/${usagerToDelete.id}`, {
+      const response = await fetch(`${API_BASE}/api/usagers/${usagerToDelete.id}`, {
         method: 'DELETE',
         headers: { adminToken: token },
       });

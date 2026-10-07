@@ -13,6 +13,8 @@ import {
 } from 'recharts';
 // ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
+
 
 const RegionListe = () => {
   // ✅ LANGUE UNIQUE — vient du Context
@@ -37,7 +39,7 @@ const RegionListe = () => {
         const token = localStorage.getItem('adminToken') || '';
 
         // Récupérer les régions
-        const regionRes = await fetch('http://localhost:3001/api/regions');
+        const regionRes = await fetch(`${API_BASE}/regions`);
         const regionData = await regionRes.json();
         if (!regionData.success) {
           throw new Error(t(
@@ -49,7 +51,7 @@ const RegionListe = () => {
         setRegions(regionData.regions);
 
         // Récupérer tous les usagers pour compter par région
-        const usagerRes = await fetch('http://localhost:3001/api/usagers', {
+        const usagerRes = await fetch(`${API_BASE}/usagers`, {
           headers: { adminToken: token },
         });
         let usagers = await usagerRes.json();

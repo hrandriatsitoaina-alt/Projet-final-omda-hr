@@ -22,6 +22,7 @@ import { generateNightPDF } from './pdf/night_pdf';
 import { generateBusPDF } from './pdf/bus_pdf';
 import { generateOccPDF } from './pdf/occ_pdf';
 import { generateFacturePDF } from './pdf/facture_pdf';
+import { API_BASE } from '../server/api';
 
 // ============================================================
 // ✅ VERROUILLAGE PERMANENT — Une seule génération par document
@@ -130,7 +131,7 @@ const ConfirmationDossier = () => {
 
   const loadRegions = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/regions');
+      const response = await fetch(`${API_BASE}/api/regions`);
       const data = await response.json();
       if (data.success && Array.isArray(data.regions)) {
         setRegionsCache(data.regions);
@@ -160,7 +161,7 @@ const ConfirmationDossier = () => {
 
   const fetchArtistesForEvent = useCallback(async (eventId) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/occ/artistes/details/${eventId}`);
+      const response = await fetch(`${API_BASE}/api/occ/artistes/details/${eventId}`);
       const data = await response.json();
       if (data.success && data.artistes) return data;
       return { artistes: [], artistesNames: [], artistesString: '', count: 0 };
@@ -314,7 +315,7 @@ const ConfirmationDossier = () => {
     const fetchCurrentUser = async () => {
       try {
         const token = localStorage.getItem('userId');
-        const response = await fetch('http://localhost:3001/api/auth/current-user', {
+        const response = await fetch(`${API_BASE}/api/auth/current-user`, {
           headers: { Authorization: token ? `Bearer ${token}` : '' },
         });
         const data = await response.json();
@@ -713,7 +714,7 @@ const ConfirmationDossier = () => {
     try {
       setNotification({ type: 'info', message: `🔄 ${t('Création de la facture avancée...', 'Famoronana faktiora mandroso...', 'Creating advanced invoice...')}` });
 
-      const response = await fetch('http://localhost:3001/api/factures/creer', {
+      const response = await fetch(`${API_BASE}/api/factures/creer`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -14,8 +14,8 @@ import {
 } from 'recharts';
 import '../styles/TableauDB.css';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
 
 // ============================================================
 // ✅ RÈGLE UNIQUE DE CALCUL (identique à PayementChoix / BilanCards)
@@ -110,11 +110,11 @@ const TableauDB = () => {
       const headers = { adminToken: token };
 
       const [paiementsRes, usagersRes, regionsRes] = await Promise.all([
-        axios.get(`${API_URL}/paiements/tous`, { headers })
+        axios.get(`${API_BASE}/paiements/tous`, { headers })
           .catch(() => ({ data: { success: false, paiements: [] } })),
-        axios.get(`${API_URL}/usagers`, { headers })
+        axios.get(`${API_BASE}/usagers`, { headers })
           .catch(() => ({ data: [] })),
-        axios.get(`${API_URL}/regions`, { headers })
+        axios.get(`${API_BASE}/regions`, { headers })
           .catch(() => ({ data: { success: false, regions: [] } })),
       ]);
 
@@ -138,7 +138,7 @@ const TableauDB = () => {
 
       // Artistes (OCC) — best effort
       try {
-        const artistesRes = await axios.get(`${API_URL}/artistes`, { headers });
+        const artistesRes = await axios.get(`${API_BASE}/artistes`, { headers });
         if (Array.isArray(artistesRes.data)) setArtistesCount(artistesRes.data.length);
         else if (artistesRes.data?.artistes) setArtistesCount(artistesRes.data.artistes.length);
       } catch (e) { /* ignore */ }

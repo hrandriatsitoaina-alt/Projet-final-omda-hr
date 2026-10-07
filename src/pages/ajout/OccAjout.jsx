@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../components/Toast';
 import { useT } from '../../hooks/useT';
+import { API_BASE } from '../../server/api';
 
 const OccAjout = ({ onCancel }) => {
   const navigate = useNavigate();
@@ -163,7 +164,7 @@ const OccAjout = ({ onCancel }) => {
   // ============================================================
   const loadRegionsUniques = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/regions');
+      const response = await fetch(`${API_BASE}/api/regions`);
       const result = await response.json();
       if (result.success && result.regions) {
         const nomsUniques = [...new Set(result.regions.map(r => r.nom))].sort();
@@ -183,7 +184,7 @@ const OccAjout = ({ onCancel }) => {
       return [];
     }
     try {
-      const url = `http://localhost:3001/api/regions/villes/${encodeURIComponent(regionNom)}`;
+      const url = `${API_BASE}/api/regions/villes/${encodeURIComponent(regionNom)}`;
       const response = await fetch(url);
       const result = await response.json();
 
@@ -266,12 +267,12 @@ const OccAjout = ({ onCancel }) => {
       const currentUser = getCurrentUser();
       if (currentUser) {
         try {
-          const response = await fetch('http://localhost:3001/api/auth/current-user', {
+          const response = await fetch(`${API_BASE}/api/auth/current-user`, {
             headers: { Authorization: `Bearer ${currentUser.id}` },
           });
           const data = await response.json();
           if (data.success && data.user) {
-            const countersResponse = await fetch(`http://localhost:3001/api/users/counters/${data.user.id}?year=${new Date().getFullYear()}`);
+            const countersResponse = await fetch(`${API_BASE}/api/users/counters/${data.user.id}?year=${new Date().getFullYear()}`);
             let compteurs = { OCC: 0 };
             if (countersResponse.ok) {
               const countersData = await countersResponse.json();
@@ -310,7 +311,7 @@ const OccAjout = ({ onCancel }) => {
 
     const fetchDossierNumber = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/occ/dossier-number');
+        const response = await fetch(`${API_BASE}/api/occ/dossier-number`);
         const data = await response.json();
         if (data.success) {
           setGlobalDossierNumber(data.dossierNumber);
@@ -440,7 +441,7 @@ const OccAjout = ({ onCancel }) => {
     }
 
     try {
-      const totalResponse = await fetch('http://localhost:3001/api/occ/total-count');
+      const totalResponse = await fetch(`${API_BASE}/api/occ/total-count`);
       let totalGlobal = 0;
       if (totalResponse.ok) {
         const totalData = await totalResponse.json();
@@ -506,7 +507,7 @@ const OccAjout = ({ onCancel }) => {
         date_ajout: new Date().toISOString().split('T')[0],
       };
 
-      const response = await fetch('http://localhost:3001/api/usagers', {
+      const response = await fetch(`${API_BASE}/api/usagers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(finalData),

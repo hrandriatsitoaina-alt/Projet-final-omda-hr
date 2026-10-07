@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../components/Toast';
 import { useT } from '../../hooks/useT';
+import { API_BASE } from '../../server/api';
 
 const MediaAjout = ({ onCancel }) => {
   const navigate = useNavigate();
@@ -116,7 +117,7 @@ const MediaAjout = ({ onCancel }) => {
   // ============================================================
   const loadRegionsUniques = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/regions');
+      const response = await fetch(`${API_BASE}/regions`);
       const result = await response.json();
       if (result.success && result.regions) {
         const nomsUniques = [...new Set(result.regions.map(r => r.nom))].sort();
@@ -136,7 +137,7 @@ const MediaAjout = ({ onCancel }) => {
       return [];
     }
     try {
-      const url = `http://localhost:3001/api/regions/villes/${encodeURIComponent(regionNom)}`;
+      const url = `${API_BASE}/regions/villes/${encodeURIComponent(regionNom)}`;
       const response = await fetch(url);
       const result = await response.json();
 
@@ -342,7 +343,7 @@ const MediaAjout = ({ onCancel }) => {
     };
 
     try {
-      const response = await fetch('http://localhost:3001/api/usagers', {
+      const response = await fetch(`${API_BASE}/usagers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(finalData),

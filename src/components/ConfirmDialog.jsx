@@ -1,16 +1,4 @@
 // src/components/ConfirmDialog.jsx
-//
-// ⚠️ POURQUOI CE FICHIER EXISTE ⚠️
-// window.confirm() et window.alert() sont des dialogues NATIFS bloquants.
-// Dans Electron, après leur fermeture, le renderer ne récupère pas toujours
-// le focus clavier au niveau OS : la fenêtre semble active mais plus aucun
-// <input> ne reçoit de frappe tant qu'un vrai événement de focus OS n'arrive
-// pas (ex: redimensionner la fenêtre). C'est la cause root du bug "impossible
-// de taper dans les inputs après avoir confirmé une action".
-//
-// Solution : ne JAMAIS utiliser confirm()/alert() dans une app Electron.
-// On les remplace par des modales React 100% dans notre contrôle, plus un
-// forceReflow() de sécurité à chaque fermeture.
 
 import React, {
     createContext,

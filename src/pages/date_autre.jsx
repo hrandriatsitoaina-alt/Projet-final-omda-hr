@@ -11,6 +11,7 @@ import Sidebar from '../components/Sidebar';
 import MiniSidebar from '../components/MiniSidebar';
 // ✅ Hook unique
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
 const Dateautre = () => {
   const navigate = useNavigate();
@@ -29,13 +30,13 @@ const Dateautre = () => {
     try {
       const [hotelRes, grandSurfaceRes, busRes, nightclubRes, mediaRes, occRes, otherRes] =
         await Promise.all([
-          fetch('http://localhost:3001/api/usagers/paiements/hotel'),
-          fetch('http://localhost:3001/api/usagers/paiements/grand-surface'),
-          fetch('http://localhost:3001/api/usagers/paiements/bus'),
-          fetch('http://localhost:3001/api/usagers/paiements/nightclub'),
-          fetch('http://localhost:3001/api/usagers/paiements/media'),
-          fetch('http://localhost:3001/api/usagers/occasionnels'),
-          fetch('http://localhost:3001/api/other-usagers'),
+          fetch(`${API_BASE}/usagers/paiements/hotel`),
+          fetch(`${API_BASE}/usagers/paiements/grand-surface`),
+          fetch(`${API_BASE}/usagers/paiements/bus`),
+          fetch(`${API_BASE}/usagers/paiements/nightclub`),
+          fetch(`${API_BASE}/usagers/paiements/media`),
+          fetch(`${API_BASE}/usagers/occasionnels`),
+          fetch(`${API_BASE}/other-usagers`),
         ]);
 
       const [hotelData, grandSurfaceData, busData, nightclubData, mediaData, occData, otherData] =
