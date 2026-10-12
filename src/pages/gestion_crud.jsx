@@ -137,7 +137,7 @@ const GestionCrud = ({ onBack }) => {
 
   const fetchRegions = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/regions`);
+      const response = await fetch(`${API_BASE}/regions`);
       const data = await response.json();
       if (data.success) setRegions(data.regions || []);
     } catch (error) {

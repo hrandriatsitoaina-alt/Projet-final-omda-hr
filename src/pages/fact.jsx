@@ -40,7 +40,7 @@ const Fact = () => {
   const [regionsDisponibles, setRegionsDisponibles] = useState([]);
   const [anneesDisponibles, setAnneesDisponibles] = useState([]);
 
-  const API = `${API_BASE}/api/recfacture`;
+  const API = `${API_BASE}/recfacture`;
 
   // ============================================================
   // HELPER : Type client → clé usager_type

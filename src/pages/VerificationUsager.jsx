@@ -108,7 +108,7 @@ const VerificationUsager = () => {
       if (a && String(a).trim()) params.set('annee', String(a).trim());
 
       const qs = params.toString();
-      const url = `${API_BASE}/api/verification/recherche${qs ? `?${qs}` : ''}`;
+      const url = `${API_BASE}/verification/recherche${qs ? `?${qs}` : ''}`;
 
       const response = await fetch(url);
       const data = await response.json();
@@ -180,7 +180,7 @@ const VerificationUsager = () => {
   const fetchAllUsagers = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/verification/usagers`);
+      const response = await fetch(`${API_BASE}/verification/usagers`);
       const data = await response.json();
       if (data.success) {
         setUsagers(data.usagers);
@@ -196,7 +196,7 @@ const VerificationUsager = () => {
 
   const fetchPaiements = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/paiements/tous`);
+      const response = await fetch(`${API_BASE}/paiements/tous`);
       const data = await response.json();
       if (data.success) setPaiementsBruts(data.paiements || []);
     } catch (error) {
@@ -207,7 +207,7 @@ const VerificationUsager = () => {
 
   const fetchAnnees = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/verification/annees`);
+      const response = await fetch(`${API_BASE}/verification/annees`);
       const data = await response.json();
       if (data.success) setAnneesDisponibles(data.annees);
     } catch (error) {
@@ -217,7 +217,7 @@ const VerificationUsager = () => {
 
   const fetchPrefixeDetails = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/verification/prefixes-details`);
+      const response = await fetch(`${API_BASE}/verification/prefixes-details`);
       const data = await response.json();
       if (data.success) setPrefixeDetails(data.prefixes);
     } catch (error) {
@@ -231,7 +231,7 @@ const VerificationUsager = () => {
       return;
     }
     try {
-      const response = await fetch(`${API_BASE}/api/verification/suggestions/prefixes?search=${search}`);
+      const response = await fetch(`${API_BASE}/verification/suggestions/prefixes?search=${search}`);
       const data = await response.json();
       if (data.success) {
         setPrefixeSuggestions(data.suggestions);

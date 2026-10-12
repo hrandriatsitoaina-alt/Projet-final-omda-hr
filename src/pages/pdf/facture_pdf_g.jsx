@@ -1,4 +1,10 @@
 // src/pages/pdf/facture_pdf_g.jsx
+const fetchJsonSafe = async (url) => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} sur ${url}`);
+  return res.json();
+};
+
 import jsPDF from 'jspdf';
 import { formatNumber } from './occ_pdf';
 import logoRepoblika from '../../assets/repoblika.jpg';
@@ -176,7 +182,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
 
     let dafName = 'DAF';
     try {
-      const response = await fetch(`${API_BASE}/api/daf/name`);
+      const response = await fetch(`${API_BASE}/daf/name`);
       const data = await response.json();
       if (data.success && data.dafName) dafName = data.dafName;
     } catch (error) {
@@ -405,7 +411,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     // Fallback API usager
     if (montantMensuel === 0 && factureData.ref_usager) {
       try {
-        const usagerResponse = await fetch(`${API_BASE}/api/usagers/${factureData.ref_usager}`);
+        const usagerResponse = await fetchJsonSafe(`${API_BASE}/usagers/${factureData.ref_usager}`);
         const usagerData = await usagerResponse.json();
 
         if (usagerData.success && usagerData.usager) {
@@ -447,7 +453,7 @@ export const generateFacturePDF = async (factureData, returnBlob = false, option
     // Fallback API montants
     if (montantMensuel === 0 && factureData.ref_usager) {
       try {
-        const montantResponse = await fetch(`${API_BASE}/api/montants/usager/${factureData.ref_usager}`);
+        const montantResponse = await fetchJsonSafe(`${API_BASE}/montants/usager/${factureData.ref_usager}`);
         const montantData = await montantResponse.json();
         if (montantData.success && montantData.montant) {
           montantMensuel = parseFloat(montantData.montant) || 0;

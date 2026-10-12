@@ -22,7 +22,7 @@ module.exports = {
   // Base de données
   DB: {
     user: 'omda_user',
-    password: 'Omda2026',
+    password: 'PSWD@!321',
     host: 'localhost',
     port: 5432,
     database: 'omda_db'

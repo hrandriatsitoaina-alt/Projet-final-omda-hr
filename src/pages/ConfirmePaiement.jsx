@@ -151,7 +151,7 @@ const ConfirmePaiement = () => {
 
   const fetchAnneesDisponibles = async (type) => {
     try {
-      const response = await fetch(`${API_BASE}/api/paiements/annees-disponibles/${type}`);
+      const response = await fetch(`${API_BASE}/paiements/annees-disponibles/${type}`);
       const data = await response.json();
       if (data.success && data.annees.length > 0) {
         setAnneesDisponibles(data.annees);
@@ -207,7 +207,7 @@ const ConfirmePaiement = () => {
       const typeParam = typeMap[usagerType] || usagerType;
 
       const response = await fetch(
-        `${API_BASE}/api/usagers/${typeParam}/${usager.id}`,
+        `${API_BASE}/usagers/${typeParam}/${usager.id}`,
         {
           method: 'DELETE',
           headers: {
@@ -293,7 +293,7 @@ const ConfirmePaiement = () => {
 
       console.log('📤 Payload envoyé:', payload);
 
-      const response = await fetch(`${API_BASE}/api/paiements/enregistrer`, {
+      const response = await fetch(`${API_BASE}/paiements/enregistrer`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

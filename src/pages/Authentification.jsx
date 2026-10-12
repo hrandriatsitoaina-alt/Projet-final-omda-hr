@@ -124,7 +124,7 @@ const Authentification = () => {
     }
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/auth/login`, {
+      const response = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -175,7 +175,7 @@ const Authentification = () => {
 
     // A) Vérifier si bootstrap nécessaire
     try {
-      const bsRes = await fetch(`${API_BASE}/api/admin/bootstrap-status`)
+      const bsRes = await fetch(`${API_BASE}/admin/bootstrap-status`)
         .then(r => r.json())
         .catch(() => null);
 
@@ -225,7 +225,7 @@ const Authentification = () => {
 
     setIsBootstrapping(true);
     try {
-      const res = await fetch(`${API_BASE}/api/admin/bootstrap`, {
+      const res = await fetch(`${API_BASE}/admin/bootstrap`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -312,7 +312,7 @@ const Authentification = () => {
     setIsAdminVerifying(true);
 
     try {
-      const serverRes = await fetch(`${API_BASE}/api/admin/verify-email`, {
+      const serverRes = await fetch(`${API_BASE}/admin/verify-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, scope: 'admin-panel' }),
@@ -356,7 +356,7 @@ const Authentification = () => {
     setIsAdminVerifying(true);
 
     try {
-      const serverRes = await fetch(`${API_BASE}/api/admin/verify`, {
+      const serverRes = await fetch(`${API_BASE}/admin/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

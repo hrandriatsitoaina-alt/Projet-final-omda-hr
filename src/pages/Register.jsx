@@ -100,9 +100,9 @@ const Register = () => {
     } catch (err) {
       console.error('Erreur réseau:', err);
       setError(t(
-        'Impossible de contacter le serveur. Vérifie qu\'il est bien lancé sur http://`${API_BASE}`:3001.',
-        'Tsy afaka mifandray amin\'ny serveur. Hamarino raha mandeha amin\'ny http://`${API_BASE}`:3001.',
-        'Cannot reach server. Check that it is running on http://`${API_BASE}`:3001.'
+        'Impossible de contacter le serveur. Vérifie qu\'il est bien lancé sur `${API_BASE}`.',
+        'Tsy afaka mifandray amin\'ny serveur. Hamarino raha mandeha amin\'ny `${API_BASE}` izy.',
+        'Cannot reach server. Check that it is running on `${API_BASE}`.'
       ));
     } finally {
       setIsLoading(false);

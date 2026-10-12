@@ -127,7 +127,7 @@ const MagasinAjout = ({ onCancel }) => {
   // ============================================================
   const loadRegionsUniques = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/regions`);
+      const response = await fetch(`${API_BASE}/regions`);
       const result = await response.json();
       if (result.success && result.regions) {
         const nomsUniques = [...new Set(result.regions.map(r => r.nom))].sort();
@@ -147,7 +147,7 @@ const MagasinAjout = ({ onCancel }) => {
       return [];
     }
     try {
-      const url = `${API_BASE}/api/regions/villes/${encodeURIComponent(regionNom)}`;
+      const url = `${API_BASE}/regions/villes/${encodeURIComponent(regionNom)}`;
       const response = await fetch(url);
       const result = await response.json();
 
@@ -225,14 +225,14 @@ const MagasinAjout = ({ onCancel }) => {
   const loadGlobalTotal = async () => {
     try {
       const currentYear = new Date().getFullYear();
-      const response = await fetch(`${API_BASE}/api/grand-surface/total-count?year=${currentYear}`);
+      const response = await fetch(`${API_BASE}/grand-surface/total-count?year=${currentYear}`);
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
           setGlobalTotalCount(data.total || 0);
         }
       } else {
-        const fallbackResponse = await fetch(`${API_BASE}/api/usagers`);
+        const fallbackResponse = await fetch(`${API_BASE}/usagers`);
         if (fallbackResponse.ok) {
           const usagers = await fallbackResponse.json();
           const count = usagers.filter(u => {
@@ -250,7 +250,7 @@ const MagasinAjout = ({ onCancel }) => {
   const loadUserCounters = async (userId) => {
     try {
       const year = new Date().getFullYear();
-      const response = await fetch(`${API_BASE}/api/users/counters/${userId}?year=${year}`);
+      const response = await fetch(`${API_BASE}/users/counters/${userId}?year=${year}`);
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -441,7 +441,7 @@ const MagasinAjout = ({ onCancel }) => {
     };
 
     try {
-      const response = await fetch(`${API_BASE}/api/usagers`, {
+      const response = await fetch(`${API_BASE}/usagers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(finalData),

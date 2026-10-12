@@ -370,7 +370,7 @@ const Quitance = () => {
           <button className="btn-back-dashboard" onClick={handleBackToDashboard}>
             <ArrowLeft size={16} />
             <Home size={16} />
-            <span>{t('Retour Dashboard', 'Hiverina amin\'ny fandraisana', 'Back to Dashboard')}</span>
+            <span>{t('Acceuil', 'Hiverina amin\'ny fandraisana', 'Back to Dashboard')}</span>
           </button>
           <button
             className="btn-generate-pdf-header"

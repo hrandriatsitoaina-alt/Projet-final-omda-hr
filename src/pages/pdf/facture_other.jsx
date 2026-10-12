@@ -156,7 +156,7 @@ export const generateFactureOtherPDF = async (factureData, returnBlob = false, o
 
     let dafName = 'DAF';
     try {
-      const response = await fetch(`${API_BASE}/api/daf/name`);
+      const response = await fetch(`${API_BASE}/daf/name`);
       const data = await response.json();
       if (data.success && data.dafName) dafName = data.dafName;
     } catch { /* ignore */ }
