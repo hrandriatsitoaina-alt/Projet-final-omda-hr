@@ -6,6 +6,7 @@ import omdaLogo from '../assets/imagesOMDA.png';
 import { User, Mail, Lock, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 // ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
 const Register = () => {
   const navigate = useNavigate();
@@ -74,7 +75,7 @@ const Register = () => {
     };
 
     try {
-      const response = await fetch('http://localhost:3001/api/auth/register', {
+      const response = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -99,9 +100,9 @@ const Register = () => {
     } catch (err) {
       console.error('Erreur réseau:', err);
       setError(t(
-        'Impossible de contacter le serveur. Vérifie qu\'il est bien lancé sur http://localhost:3001.',
-        'Tsy afaka mifandray amin\'ny serveur. Hamarino raha mandeha amin\'ny http://localhost:3001.',
-        'Cannot reach server. Check that it is running on http://localhost:3001.'
+        'Impossible de contacter le serveur. Vérifie qu\'il est bien lancé sur `${API_BASE}`.',
+        'Tsy afaka mifandray amin\'ny serveur. Hamarino raha mandeha amin\'ny `${API_BASE}` izy.',
+        'Cannot reach server. Check that it is running on `${API_BASE}`.'
       ));
     } finally {
       setIsLoading(false);

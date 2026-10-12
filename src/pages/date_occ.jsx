@@ -35,6 +35,7 @@ import {
 import MiniSidebar from '../components/MiniSidebar';
 import { useT } from '../hooks/useT';
 import '../styles/date_occ.css';
+import { API_BASE } from '../server/api';
 
 const DateOcc = () => {
   const navigate = useNavigate();
@@ -261,7 +262,7 @@ const DateOcc = () => {
   // ============================================================
   const loadRegionsAvecVilles = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/regions/avec-villes');
+      const res = await fetch(`${API_BASE}/regions/avec-villes`);
       const data = await res.json();
 
       if (data.success && Array.isArray(data.regions)) {
@@ -273,7 +274,7 @@ const DateOcc = () => {
         return;
       }
 
-      const fallback = await fetch('http://localhost:3001/api/regions');
+      const fallback = await fetch(`${API_BASE}/regions`);
       const fbData = await fallback.json();
       if (fbData.success) {
         setRegionsAvecVilles(
@@ -297,7 +298,7 @@ const DateOcc = () => {
       if (selectedRegionId) params.append('region_id', selectedRegionId);
       if (selectedVilleId) params.append('ville_id', selectedVilleId);
 
-      const url = `http://localhost:3001/api/usagers/occasionnels${params.toString() ? '?' + params.toString() : ''}`;
+      const url = `${API_BASE}/usagers/occasionnels${params.toString() ? '?' + params.toString() : ''}`;
       console.log('📡 Fetch OCC :', url);
 
       const res = await fetch(url);

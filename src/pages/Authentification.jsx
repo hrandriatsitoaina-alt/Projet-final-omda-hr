@@ -10,9 +10,10 @@ import {
   Menu, X, AlertCircle, Mail, ShieldCheck, Loader2, CheckCircle2
 } from 'lucide-react';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
 const ALLOWED_ADMIN_ROLES = ['super_admin', 'daf', 'admin'];
-const API = 'http://localhost:3001';
+
 
 const Authentification = () => {
   const navigate = useNavigate();
@@ -123,7 +124,7 @@ const Authentification = () => {
     }
     setIsLoading(true);
     try {
-      const response = await fetch(`${API}/api/auth/login`, {
+      const response = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -174,7 +175,7 @@ const Authentification = () => {
 
     // A) Vérifier si bootstrap nécessaire
     try {
-      const bsRes = await fetch(`${API}/api/admin/bootstrap-status`)
+      const bsRes = await fetch(`${API_BASE}/admin/bootstrap-status`)
         .then(r => r.json())
         .catch(() => null);
 
@@ -224,7 +225,7 @@ const Authentification = () => {
 
     setIsBootstrapping(true);
     try {
-      const res = await fetch(`${API}/api/admin/bootstrap`, {
+      const res = await fetch(`${API_BASE}/admin/bootstrap`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -311,7 +312,7 @@ const Authentification = () => {
     setIsAdminVerifying(true);
 
     try {
-      const serverRes = await fetch(`${API}/api/admin/verify-email`, {
+      const serverRes = await fetch(`${API_BASE}/admin/verify-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, scope: 'admin-panel' }),
@@ -355,7 +356,7 @@ const Authentification = () => {
     setIsAdminVerifying(true);
 
     try {
-      const serverRes = await fetch(`${API}/api/admin/verify`, {
+      const serverRes = await fetch(`${API_BASE}/admin/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -18,8 +18,9 @@ import {
   Legend
 } from 'recharts';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
+
 
 // ============================================================
 // ✅ HELPER : inclure un paiement pour l'année en cours
@@ -78,9 +79,9 @@ const BilanCards = () => {
         const headers = { adminToken: token };
 
         const [statsRes, paiementsRes, usagersRes] = await Promise.all([
-          axios.get(`${API_URL}/paiements/stats`, { headers }).catch(() => ({ data: { success: false } })),
-          axios.get(`${API_URL}/paiements/tous`, { headers }).catch(() => ({ data: { success: false, paiements: [] } })),
-          axios.get(`${API_URL}/usagers`, { headers }).catch(() => ({ data: [] })),
+          axios.get(`${API_BASE}/paiements/stats`, { headers }).catch(() => ({ data: { success: false } })),
+          axios.get(`${API_BASE}/paiements/tous`, { headers }).catch(() => ({ data: { success: false, paiements: [] } })),
+          axios.get(`${API_BASE}/usagers`, { headers }).catch(() => ({ data: [] })),
         ]);
 
         if (cancelled) return;

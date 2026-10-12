@@ -31,6 +31,7 @@ import {
 import '../styles/notification_admin.css';
 import MiniSidebar from '../components/MiniSidebar';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
 const NotificationAdmin = () => {
   const navigate = useNavigate();
@@ -64,7 +65,7 @@ const NotificationAdmin = () => {
 
   const fetchAllUsagers = async (currentToken) => {
     try {
-      const response = await fetch('http://localhost:3001/api/usagers', {
+      const response = await fetch(`${API_BASE}/usagers`, {
         headers: { adminToken: currentToken, 'Content-Type': 'application/json' },
       });
       const data = await response.json();
@@ -80,14 +81,14 @@ const NotificationAdmin = () => {
     setError(null);
 
     try {
-      const response = await fetch('http://localhost:3001/api/notifications', {
+      const response = await fetch(`${API_BASE}/notifications`, {
         method: 'GET',
         headers: { adminToken: currentToken, 'Content-Type': 'application/json' },
       });
 
       let data;
       if (response.status === 403) {
-        const retryResponse = await fetch('http://localhost:3001/api/notifications', {
+        const retryResponse = await fetch(`${API_BASE}/notifications`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
         });
@@ -125,7 +126,7 @@ const NotificationAdmin = () => {
 
   const markAsRead = async (id) => {
     try {
-      await fetch(`http://localhost:3001/api/notifications/${id}/read`, {
+      await fetch(`${API_BASE}/notifications/${id}/read`, {
         method: 'PUT',
         headers: {
           adminToken: token || 'super_admin_secret_2026',

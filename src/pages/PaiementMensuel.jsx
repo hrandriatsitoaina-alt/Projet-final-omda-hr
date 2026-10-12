@@ -15,8 +15,8 @@ import { useToast } from '../components/Toast';
 import { generateFacturePDF } from './pdf/facture_pdf';
 import JSZip from 'jszip';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
 
 const PaiementMensuel = () => {
   const navigate = useNavigate();
@@ -448,7 +448,7 @@ const PaiementMensuel = () => {
         }),
       };
 
-      const response = await fetch(`${API_URL}/usagers/${usager.id}`, {
+      const response = await fetch(`${API_BASE}/usagers/${usager.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -479,7 +479,7 @@ const PaiementMensuel = () => {
     try {
       console.log('📄 Chargement du prochain numéro de quittance...');
 
-      const response = await fetch(`${API_URL}/quittance/reference`);
+      const response = await fetch(`${API_BASE}/quittance/reference`);
       const data = await response.json();
 
       console.log('📊 Réponse /api/quittance/reference:', data);
@@ -557,7 +557,7 @@ const PaiementMensuel = () => {
     setShowQuittanceMenu(false);
 
     try {
-      const response = await fetch(`${API_URL}/quittance/reference`);
+      const response = await fetch(`${API_BASE}/quittance/reference`);
       const data = await response.json();
 
       if (data.success) {
@@ -605,7 +605,7 @@ const PaiementMensuel = () => {
           usagerFinal = usagerFallback;
         } else {
           try {
-            const res = await fetch(`${API_URL}/other-usagers`);
+            const res = await fetch(`${API_BASE}/other-usagers`);
             const data = await res.json();
             if (data.success && data.usagers) {
               const found = data.usagers.find(u => Number(u.id) === Number(id));
@@ -619,7 +619,7 @@ const PaiementMensuel = () => {
         }
       } else {
         try {
-          const response = await fetch(`${API_URL}/usagers/${type}/${id}`);
+          const response = await fetch(`${API_BASE}/usagers/${type}/${id}`);
           if (response.ok) {
             const data = await response.json();
             if (data.success && data.usager) {
@@ -668,7 +668,7 @@ const PaiementMensuel = () => {
 
   const fetchAnneesDisponibles = async (type) => {
     try {
-      const response = await fetch(`${API_URL}/paiements/annees-disponibles/${type}`);
+      const response = await fetch(`${API_BASE}/paiements/annees-disponibles/${type}`);
       const data = await response.json();
 
       const currentYear = new Date().getFullYear();
@@ -718,7 +718,7 @@ const PaiementMensuel = () => {
   const fetchPaiementsExistants = async (usagerId, type, anneeCible = null) => {
     try {
       const annee = anneeCible !== null ? anneeCible : selectedYear;
-      const response = await fetch(`${API_URL}/paiements/usager/${usagerId}/${type}`);
+      const response = await fetch(`${API_BASE}/paiements/usager/${usagerId}/${type}`);
       const data = await response.json();
 
       if (data.success && Array.isArray(data.paiements)) {
@@ -892,7 +892,7 @@ const PaiementMensuel = () => {
   // ═══════════════════════════════════════════════════════════
   const fetchLastRefOmda = async () => {
     try {
-      const response = await fetch(`${API_URL}/factures/last-ref-omda`);
+      const response = await fetch(`${API_BASE}/factures/last-ref-omda`);
       const data = await response.json();
       if (data.success) {
         return data.nextRefOmda || 1;
@@ -1007,7 +1007,7 @@ const PaiementMensuel = () => {
         statut: 'paye',
       };
 
-      const paiementRes = await fetch(`${API_URL}/paiements/enregistrer`, {
+      const paiementRes = await fetch(`${API_BASE}/paiements/enregistrer`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1027,7 +1027,7 @@ const PaiementMensuel = () => {
         let totalFacture = montantTotalCapture;
         if (isRetardCapture) totalFacture += montantRetardCapture;
 
-        const response = await fetch(`${API_URL}/factures/creer-avec-paiement-groupe`, {
+        const response = await fetch(`${API_BASE}/factures/creer-avec-paiement-groupe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1059,7 +1059,7 @@ const PaiementMensuel = () => {
 
         const result = await response.json();
         if (result.success) {
-          const factureResponse = await fetch(`${API_URL}/factures/${result.factureId}`);
+          const factureResponse = await fetch(`${API_BASE}/factures/${result.factureId}`);
           const factureData = await factureResponse.json();
           if (factureData.success) {
             const factureComplete = {
@@ -1108,7 +1108,7 @@ const PaiementMensuel = () => {
           let totalAvecRetard = montantMoisReparti + montantRetardCapture;
 
           try {
-            const response = await fetch(`${API_URL}/factures/creer-avec-paiement`, {
+            const response = await fetch(`${API_BASE}/factures/creer-avec-paiement`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -1147,7 +1147,7 @@ const PaiementMensuel = () => {
                 console.log(`📌 refOmdaBase récupéré du 1er appel: ${refOmdaBase}`);
               }
 
-              const factureResponse = await fetch(`${API_URL}/factures/${result.factureId}`);
+              const factureResponse = await fetch(`${API_BASE}/factures/${result.factureId}`);
               const factureData = await factureResponse.json();
               if (factureData.success) {
                 const factureComplete = {
@@ -1183,7 +1183,7 @@ const PaiementMensuel = () => {
           totalFacture += fraisRenouvellementCapture;
         }
 
-        const response = await fetch(`${API_URL}/factures/creer-avec-paiement-groupe`, {
+        const response = await fetch(`${API_BASE}/factures/creer-avec-paiement-groupe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1216,7 +1216,7 @@ const PaiementMensuel = () => {
 
         const result = await response.json();
         if (result.success) {
-          const factureResponse = await fetch(`${API_URL}/factures/${result.factureId}`);
+          const factureResponse = await fetch(`${API_BASE}/factures/${result.factureId}`);
           const factureData = await factureResponse.json();
           if (factureData.success) {
             const factureComplete = {

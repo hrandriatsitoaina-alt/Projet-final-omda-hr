@@ -12,8 +12,8 @@ import '../styles/comptet.css';
 import MiniSidebar from '../components/MiniSidebar';
 import { useT } from '../hooks/useT';
 import { generateComptePDFGlobal } from './pdf/comptet_pdf';
+import { API_BASE } from '../server/api';
 
-const API_BASE = 'http://localhost:3001/api';
 
 const TYPE_ICONS = {
   hotel: Hotel,

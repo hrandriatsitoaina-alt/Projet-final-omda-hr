@@ -21,8 +21,8 @@ import RegionListe from '../components/regionListe';
 // ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
 import '../styles/Dashboard.css';
-
-const API_BASE = 'http://localhost:3001/api';
+import { API_BASE } from '../server/api';
+  
 
 function Dashboard() {
   const navigate = useNavigate();

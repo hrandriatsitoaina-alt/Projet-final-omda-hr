@@ -3,8 +3,8 @@ import React, { useState, useEffect } from 'react';
 import '../styles/gestion_crud.css';
 import { Edit, Trash2, ArrowLeft, Plus, MapPin, AlertCircle, Home, Building2 } from 'lucide-react';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
 const DELETE_TIMEOUT_MS = 10000;
 
 const GestionRegionCrud = ({ onBack }) => {
@@ -79,7 +79,8 @@ const GestionRegionCrud = ({ onBack }) => {
       const headers = currentToken ? { adminToken: currentToken } : {};
 
       // ✅ APPELER /regions/avec-villes AU LIEU DE /regions
-      const response = await fetch(`${API_URL}/regions/avec-villes`, { headers });
+      console.log('URL appelée :', `${API_BASE}/regions/avec-villes`);
+      const response = await fetch(`${API_BASE}/regions/avec-villes`, { headers });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
@@ -100,8 +101,8 @@ const GestionRegionCrud = ({ onBack }) => {
         const headers = currentToken ? { adminToken: currentToken } : {};
 
         const [regionsRes, villesRes] = await Promise.all([
-          fetch(`${API_URL}/regions`, { headers }).then(r => r.json()),
-          fetch(`${API_URL}/villes`, { headers }).then(r => r.json()),
+          fetch(`${API_BASE}/regions`, { headers }).then(r => r.json()),
+          fetch(`${API_BASE}/villes`, { headers }).then(r => r.json()),
         ]);
 
         if (regionsRes.success) {
@@ -150,7 +151,7 @@ const GestionRegionCrud = ({ onBack }) => {
     }
 
     try {
-      const response = await fetch(`${API_URL}/regions`, {
+      const response = await fetch(`${API_BASE}/regions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify({
@@ -211,7 +212,7 @@ const GestionRegionCrud = ({ onBack }) => {
     }
 
     try {
-      const response = await fetch(`${API_URL}/villes/${editingVille.id}`, {
+      const response = await fetch(`${API_BASE}/villes/${editingVille.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify({
@@ -277,7 +278,7 @@ const GestionRegionCrud = ({ onBack }) => {
     }, DELETE_TIMEOUT_MS);
 
     try {
-      const url = `${API_URL}/villes/${villeToDelete.id}`;
+      const url = `${API_BASE}/villes/${villeToDelete.id}`;
       console.log('🗑️  DELETE', url);
 
       const response = await fetch(url, {

@@ -11,8 +11,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useT } from '../hooks/useT';
 import '../styles/facture_conf.css';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { API_BASE } from '../server/api';
 
 const Fact = () => {
   const navigate = useNavigate();
@@ -41,7 +40,7 @@ const Fact = () => {
   const [regionsDisponibles, setRegionsDisponibles] = useState([]);
   const [anneesDisponibles, setAnneesDisponibles] = useState([]);
 
-  const API_BASE = `${API_URL}/api/recfacture`;
+  const API = `${API_BASE}/recfacture`;
 
   // ============================================================
   // HELPER : Type client → clé usager_type
@@ -131,7 +130,7 @@ const Fact = () => {
   useEffect(() => {
     const fetchDafName = async () => {
       try {
-        const response = await axios.get(`${API_BASE}/daf-name`);
+        const response = await axios.get(`${API}/daf-name`);
         if (response.data.success) setDafName(response.data.dafName);
       } catch (err) {
         console.error('❌ Erreur récupération DAF:', err.message);
@@ -169,7 +168,7 @@ const Fact = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get(`${API_BASE}/factures`);
+      const response = await axios.get(`${API}/factures`);
       if (response.data.success) {
         const facturesData = response.data.factures || [];
         const sortedFactures = [...facturesData].sort((a, b) => {
@@ -217,7 +216,7 @@ const Fact = () => {
 
   const fetchPaiements = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/paiements/tous`);
+      const response = await axios.get(`${API}/api/paiements/tous`);
       if (response.data.success) {
         setPaiements(response.data.paiements || []);
         console.log(`✅ ${response.data.paiements?.length || 0} paiements chargés`);

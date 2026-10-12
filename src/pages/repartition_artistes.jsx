@@ -1,4 +1,4 @@
-// src/pages/repartition_artister.jsx
+// src/pages/repartition_artistes.jsx
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Users, Calendar, DollarSign, Search, ChevronLeft, ChevronRight,
@@ -13,8 +13,9 @@ import '../styles/repartition_artister.css';
 import { generateArtistePDF } from './pdf/artiste_pdf';
 // ✅ Hook unique de traduction
 import { useT } from '../hooks/useT';
+import { API_BASE, API_REPARTITION } from '../server/api';
 
-const RepartitionArtister = () => {
+const RepartitionArtistes = () => {
   const navigate = useNavigate();
 
   // ✅ LANGUE UNIQUE — vient du Context
@@ -60,8 +61,7 @@ const RepartitionArtister = () => {
   const [generationMessage, setGenerationMessage] = useState('');
   const pdfOptionsRef = useRef(null);
 
-  const API_BASE = 'http://localhost:3001/api';
-  const API_REPARTITION = 'http://localhost:3001/api/repartition';
+
 
   // ✅ Mois traduits (longs)
   const moisLabels = useMemo(() => {
@@ -920,4 +920,4 @@ const RepartitionArtister = () => {
   );
 };
 
-export default RepartitionArtister;
+export default RepartitionArtistes;

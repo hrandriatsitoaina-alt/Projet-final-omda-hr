@@ -15,8 +15,9 @@ import {
 import '../styles/other-ajout.css';
 import { useT } from '../hooks/useT';
 import { generateFactureOtherPDF } from './pdf/facture_other';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
+
 
 const emptyLigne = () => ({ description: '', uniter: 1, pu: '' });
 
@@ -238,7 +239,7 @@ const OtherAjout = () => {
 
   const loadRegionsUniques = async () => {
     try {
-      const response = await fetch(`${API_URL}/regions`);
+      const response = await fetch(`${API_BASE}/regions`);
       const result = await response.json();
       if (result.success && result.regions) {
         setRegionsCache(result.regions);
@@ -256,7 +257,7 @@ const OtherAjout = () => {
       return [];
     }
     try {
-      const url = `${API_URL}/regions/villes/${encodeURIComponent(regionNom)}`;
+      const url = `${API_BASE}/regions/villes/${encodeURIComponent(regionNom)}`;
       const response = await fetch(url);
       const result = await response.json();
 
@@ -318,7 +319,7 @@ const OtherAjout = () => {
 
   const loadQuittance = async () => {
     try {
-      const res = await fetch(`${API_URL}/quittance/reference`);
+      const res = await fetch(`${API_BASE}/quittance/reference`);
       const data = await res.json();
       if (data.success) {
         const nextFormat = data.prochainNumero || '0000001';
@@ -382,7 +383,7 @@ const OtherAjout = () => {
   const handleVoirReference = async () => {
     setShowQuittanceMenu(false);
     try {
-      const response = await fetch(`${API_URL}/quittance/reference`);
+      const response = await fetch(`${API_BASE}/quittance/reference`);
       const data = await response.json();
       if (data.success) {
         setReferenceInfo(data);
@@ -501,7 +502,7 @@ const OtherAjout = () => {
       // ═══════════════════════════════════════════════════════════
       // 1️⃣ CRÉATION USAGER + FACTURE + QUITTANCE
       // ═══════════════════════════════════════════════════════════
-      const response = await fetch(`${API_URL}/other-usagers/creer-complet`, {
+      const response = await fetch(`${API_BASE}/other-usagers/creer-complet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payloadUsager)
@@ -546,7 +547,7 @@ const OtherAjout = () => {
 
         console.log('📤 [1/2] Appel /paiements/enregistrer avec:', paiementPayload);
 
-        const paiementRes = await fetch(`${API_URL}/paiements/enregistrer`, {
+        const paiementRes = await fetch(`${API_BASE}/paiements/enregistrer`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

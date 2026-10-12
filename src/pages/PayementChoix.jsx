@@ -11,8 +11,8 @@ import {
 import '../styles/gestionPaiement.css';
 import MiniSidebar from '../components/MiniSidebar';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
 
 /* ============================================================
    HELPERS — alignés sur la structure réelle de la table paiements
@@ -208,7 +208,7 @@ const PaiementChoix = () => {
         return;
       }
       try {
-        const res = await axios.get(`${API_URL}/admin/session`, {
+        const res = await axios.get(`${API_BASE}/admin/session`, {
           headers: { admintoken: existingToken },
           params: { scope: 'payment' },
         });
@@ -282,7 +282,7 @@ const PaiementChoix = () => {
   // Non bloquant : sert uniquement à contrôler l'écart avec la base
   const fetchStats = async () => {
     try {
-      const response = await axios.get(`${API_URL}/paiements/stats`);
+      const response = await axios.get(`${API_BASE}/paiements/stats`);
       if (response.data.success) setStatsGlobal(response.data.global || null);
     } catch (err) {
       console.error('❌ Erreur fetchStats:', err);
@@ -292,7 +292,7 @@ const PaiementChoix = () => {
 
   const fetchRegions = async () => {
     try {
-      const response = await axios.get(`${API_URL}/regions`);
+      const response = await axios.get(`${API_BASE}/regions`);
       if (response.data.success) setRegions(response.data.regions || []);
     } catch (err) {
       console.error('❌ Erreur chargement régions:', err);
@@ -301,7 +301,7 @@ const PaiementChoix = () => {
 
   const fetchUsagers = async () => {
     try {
-      const response = await axios.get(`${API_URL}/usagers`);
+      const response = await axios.get(`${API_BASE}/usagers`);
       let usagers = [];
       if (Array.isArray(response.data)) usagers = response.data;
       else if (Array.isArray(response.data?.usagers)) usagers = response.data.usagers;
@@ -326,7 +326,7 @@ const PaiementChoix = () => {
 
   const fetchAvailableYears = async () => {
     try {
-      const response = await axios.get(`${API_URL}/paiements/annees-disponibles/tous`);
+      const response = await axios.get(`${API_BASE}/paiements/annees-disponibles/tous`);
       if (response.data.success && response.data.annees.length > 0) {
         setAvailableYears(response.data.annees);
         return;
@@ -340,7 +340,7 @@ const PaiementChoix = () => {
 
   const fetchPaiements = async () => {
     try {
-      const response = await axios.get(`${API_URL}/paiements/tous`);
+      const response = await axios.get(`${API_BASE}/paiements/tous`);
       if (response.data.success) {
         setPaiementsBruts(response.data.paiements || []);
       } else {
@@ -540,7 +540,7 @@ const PaiementChoix = () => {
 
     try {
       const [serverRes] = await Promise.all([
-        axios.post(`${API_URL}/admin/verify-email`, { email, scope: 'payment' })
+        axios.post(`${API_BASE}/admin/verify-email`, { email, scope: 'payment' })
           .then(r => r.data).catch(err => err.response?.data || { success: false }),
         runVerifyAnimation(),
       ]);
@@ -570,7 +570,7 @@ const PaiementChoix = () => {
 
     try {
       const [serverRes] = await Promise.all([
-        axios.post(`${API_URL}/admin/verify`, {
+        axios.post(`${API_BASE}/admin/verify`, {
           password: adminPassword, email: adminVerifiedUser?.email, scope: 'payment',
         }).then(r => r.data).catch(err => err.response?.data || { success: false }),
         runVerifyAnimation(),

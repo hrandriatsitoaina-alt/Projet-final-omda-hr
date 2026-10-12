@@ -13,9 +13,9 @@ import {
 } from 'lucide-react';
 import '../styles/VerificationUsager.css';
 import { useT } from '../hooks/useT';
-
+import { API_BASE } from '../server/api';
 // ✅ Constante centralisée
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
 const SEARCH_DEBOUNCE_MS = 400;
 
 const VerificationUsager = () => {
@@ -108,7 +108,7 @@ const VerificationUsager = () => {
       if (a && String(a).trim()) params.set('annee', String(a).trim());
 
       const qs = params.toString();
-      const url = `${API_URL}/api/verification/recherche${qs ? `?${qs}` : ''}`;
+      const url = `${API_BASE}/verification/recherche${qs ? `?${qs}` : ''}`;
 
       const response = await fetch(url);
       const data = await response.json();
@@ -180,7 +180,7 @@ const VerificationUsager = () => {
   const fetchAllUsagers = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/verification/usagers`);
+      const response = await fetch(`${API_BASE}/verification/usagers`);
       const data = await response.json();
       if (data.success) {
         setUsagers(data.usagers);
@@ -196,7 +196,7 @@ const VerificationUsager = () => {
 
   const fetchPaiements = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/paiements/tous`);
+      const response = await fetch(`${API_BASE}/paiements/tous`);
       const data = await response.json();
       if (data.success) setPaiementsBruts(data.paiements || []);
     } catch (error) {
@@ -207,7 +207,7 @@ const VerificationUsager = () => {
 
   const fetchAnnees = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/verification/annees`);
+      const response = await fetch(`${API_BASE}/verification/annees`);
       const data = await response.json();
       if (data.success) setAnneesDisponibles(data.annees);
     } catch (error) {
@@ -217,7 +217,7 @@ const VerificationUsager = () => {
 
   const fetchPrefixeDetails = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/verification/prefixes-details`);
+      const response = await fetch(`${API_BASE}/verification/prefixes-details`);
       const data = await response.json();
       if (data.success) setPrefixeDetails(data.prefixes);
     } catch (error) {
@@ -231,7 +231,7 @@ const VerificationUsager = () => {
       return;
     }
     try {
-      const response = await fetch(`${API_URL}/api/verification/suggestions/prefixes?search=${search}`);
+      const response = await fetch(`${API_BASE}/verification/suggestions/prefixes?search=${search}`);
       const data = await response.json();
       if (data.success) {
         setPrefixeSuggestions(data.suggestions);

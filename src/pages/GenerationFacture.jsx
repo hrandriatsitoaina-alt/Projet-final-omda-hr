@@ -14,8 +14,8 @@ import '../styles/generation-facture.css';
 import MiniSidebar from '../components/MiniSidebar';
 import { generateFacturePDF } from './pdf/facture_pdf_g';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
-const API_URL = 'http://localhost:3001/api';
 
 const GenerationFacture = () => {
   const navigate = useNavigate();
@@ -131,7 +131,7 @@ const GenerationFacture = () => {
     try {
       setLoading(true);
 
-      const response = await fetch(`${API_URL}/factures/${id}`);
+      const response = await fetch(`${API_BASE}/factures/${id}`);
       const data = await response.json();
 
       if (data.success) {
@@ -172,7 +172,7 @@ const GenerationFacture = () => {
         if (montantVal === 0 && factureData.ref_usager) {
           try {
             const usagerResponse = await fetch(
-              `${API_URL}/usagers/${factureData.ref_usager}`
+              `${API_BASE}/usagers/${factureData.ref_usager}`
             );
             const usagerData = await usagerResponse.json();
 
@@ -230,7 +230,7 @@ const GenerationFacture = () => {
 
         // ✅ QUITTANCE — Charger la QUITTANCE ACTUELLE depuis quitance_usager
         try {
-          const qRes = await fetch(`${API_URL}/quittance/facture/${id}`);
+          const qRes = await fetch(`${API_BASE}/quittance/facture/${id}`);
           const qData = await qRes.json();
 
           if (qData.success && qData.quittance) {
@@ -300,7 +300,7 @@ const GenerationFacture = () => {
     try {
       const userId = getCurrentUserId();
 
-      const response = await fetch(`${API_URL}/quittance/enregistrer`, {
+      const response = await fetch(`${API_BASE}/quittance/enregistrer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -347,7 +347,7 @@ const GenerationFacture = () => {
     setShowQuittanceMenu(false);
 
     try {
-      const response = await fetch(`${API_URL}/quittance/reference`);
+      const response = await fetch(`${API_BASE}/quittance/reference`);
       const data = await response.json();
 
       if (data.success) {

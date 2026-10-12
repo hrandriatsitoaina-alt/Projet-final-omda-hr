@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import '../styles/gestion_crud.css';
 import { Edit, Trash2, ArrowLeft, Search, X, FolderOpen } from 'lucide-react';
 import { useT } from '../hooks/useT';
+import { API_BASE } from '../server/api';
 
 const GestionCrud = ({ onBack }) => {
   const { t } = useT();
@@ -82,7 +83,7 @@ const GestionCrud = ({ onBack }) => {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/auth/current-user', {
+      const response = await fetch(`${API_BASE}/auth/current-user`, {
         headers: { Authorization: `Bearer ${currentToken}`, adminToken: currentToken },
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -101,7 +102,7 @@ const GestionCrud = ({ onBack }) => {
     setError(null);
     try {
       const headers = currentToken ? { adminToken: currentToken } : {};
-      const response = await fetch('http://localhost:3001/api/usagers', { headers });
+      const response = await fetch(`${API_BASE}/usagers`, { headers });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       let usagersData = [];
@@ -136,7 +137,7 @@ const GestionCrud = ({ onBack }) => {
 
   const fetchRegions = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/regions');
+      const response = await fetch(`${API_BASE}/regions`);
       const data = await response.json();
       if (data.success) setRegions(data.regions || []);
     } catch (error) {
@@ -214,7 +215,7 @@ const GestionCrud = ({ onBack }) => {
     if (selectedUsager.type_usager === 'Autre') {
       try {
         const response = await fetch(
-          `http://localhost:3001/api/usagers/other/${selectedUsager.id}`,
+          `${API_BASE}/usagers/other/${selectedUsager.id}`,
           {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', adminToken: token },
@@ -254,7 +255,7 @@ const GestionCrud = ({ onBack }) => {
 
     const updateData = { ...editingData, type_usager: editingData.type_usager || selectedUsager.type_usager };
     try {
-      const response = await fetch(`http://localhost:3001/api/usagers/${selectedUsager.id}`, {
+      const response = await fetch(`${API_BASE}/usagers/${selectedUsager.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', adminToken: token },
         body: JSON.stringify(updateData),
@@ -305,7 +306,7 @@ const GestionCrud = ({ onBack }) => {
 
     try {
       const response = await fetch(
-        `http://localhost:3001/api/usagers/${typeParam}/${usagerToDelete.id}`,
+        `${API_BASE}/usagers/${typeParam}/${usagerToDelete.id}`,
         {
           method: 'DELETE',
           headers: {
